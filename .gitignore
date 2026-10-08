@@ -1,0 +1,26 @@
+# ---- 仿真产物（可随时重新生成，不要进版本库）----
+*.vcd
+*.lxt
+*.fst
+*.out
+*.vvp
+
+# ---- Gowin 云源软件工程产物 ----
+impl/
+*.fs
+*.bin
+*.log
+*.rpt
+*.gprj.user
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+*.swp
+
+# ---- 临时文件 ----
+*.tmp
+*.bak
+~$*
