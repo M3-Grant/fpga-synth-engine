@@ -89,9 +89,23 @@ if errorlevel 1 (
 )
 echo.
 
-REM ---------- 6/6  led_ctrl_top ----------
+REM ---------- 6/7  synth_board_top (board level) ----------
 echo ============================================
-echo   6/6  led_ctrl_top   (LED modes)
+echo   6/7  synth_board_top   (board top: keys to audio)
+echo ============================================
+"%IV%\iverilog.exe" -g2005 -o sim_board.out rtl\clk_div.v rtl\debounce.v rtl\i2s_tx.v rtl\note_table.v rtl\adsr.v rtl\osc_voice.v rtl\oscillator_array.v rtl\note_alloc.v rtl\mix_tree.v rtl\synth_top.v rtl\synth_board_top.v sim\tb_synth_board.v
+if errorlevel 1 (
+    echo [COMPILE FAILED]
+    set FAIL=1
+) else (
+    "%IV%\vvp.exe" sim_board.out
+    if errorlevel 1 set FAIL=1
+)
+echo.
+
+REM ---------- 7/7  led_ctrl_top ----------
+echo ============================================
+echo   7/7  led_ctrl_top   (LED modes)
 echo ============================================
 "%IV%\iverilog.exe" -g2005 -o sim_led.out rtl\clk_div.v rtl\debounce.v rtl\pwm.v rtl\led_ctrl_top.v sim\tb_led_ctrl_top.v
 if errorlevel 1 (
