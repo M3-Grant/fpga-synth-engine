@@ -7,8 +7,10 @@
 
 # ---- 仿真导出的数据文件 ----
 # i2s_capture.csv 由 tb_export_i2s.v 生成（约 870KB），可重新生成故不入库
-# 注意：synth_demo.wav 是音频交付物，**故意保留入库**，方便直接试听
+# synth_demo.pcm  由 tb_export_wav.v 生成的原始 PCM，由 pcm_to_wav.py 转 WAV
+# 注意：synth_demo.wav / synth_demo_44k.wav 是音频交付物，**故意保留入库**
 i2s_capture.csv
+*.pcm
 
 # ---- Gowin 云源软件工程产物 ----
 impl/

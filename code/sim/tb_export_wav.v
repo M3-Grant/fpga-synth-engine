@@ -74,41 +74,19 @@ module tb_export_wav;
     end
 
     // ------------------------------------------------------------------
-    // WAV 写出
+    // 原始 PCM 写出（只写样本，不写 WAV 头）
+    //
+    // ⚠ 为什么不在这里拼 WAV 头：
+    //   iverilog 的 $fwrite 只能顺序写文件，无法回填 RIFF ChunkSize
+    //   和 data 块大小，导致播放器无法确定数据长度而拒读。
+    //   因此这里只导出纯 PCM，由 tools/pcm_to_wav.py 封装标准 WAV。
     // ------------------------------------------------------------------
     integer wav;
     integer n_samples;
     integer t0;                // 时间锚点（模块级，Verilog-2001 不允许在 initial 内声明）
     reg [7:0] byte_lo, byte_hi;
 
-    task wav_write_header;
-        begin
-            $fwrite(wav, "%c", 82);  $fwrite(wav, "%c", 73);   // RIFF
-            $fwrite(wav, "%c", 70);  $fwrite(wav, "%c", 70);
-            $fwrite(wav, "%c", 0);   $fwrite(wav, "%c", 0);
-            $fwrite(wav, "%c", 0);   $fwrite(wav, "%c", 0);
-            $fwrite(wav, "%c", 87);  $fwrite(wav, "%c", 65);   // WAVE
-            $fwrite(wav, "%c", 86);  $fwrite(wav, "%c", 69);
-            $fwrite(wav, "%c", 102); $fwrite(wav, "%c", 109);  // fmt
-            $fwrite(wav, "%c", 116); $fwrite(wav, "%c", 32);
-            $fwrite(wav, "%c", 16);  $fwrite(wav, "%c", 0);
-            $fwrite(wav, "%c", 0);   $fwrite(wav, "%c", 0);
-            $fwrite(wav, "%c", 1);   $fwrite(wav, "%c", 0);    // PCM
-            $fwrite(wav, "%c", 1);   $fwrite(wav, "%c", 0);    // 单声道
-            $fwrite(wav, "%c", 254); $fwrite(wav, "%c", 205);  // 52734
-            $fwrite(wav, "%c", 0);   $fwrite(wav, "%c", 0);
-            $fwrite(wav, "%c", 252); $fwrite(wav, "%c", 155);  // byte rate
-            $fwrite(wav, "%c", 1);   $fwrite(wav, "%c", 0);
-            $fwrite(wav, "%c", 2);   $fwrite(wav, "%c", 0);    // block align
-            $fwrite(wav, "%c", 16);  $fwrite(wav, "%c", 0);    // 16 bit
-            $fwrite(wav, "%c", 100); $fwrite(wav, "%c", 97);   // data
-            $fwrite(wav, "%c", 116); $fwrite(wav, "%c", 97);
-            $fwrite(wav, "%c", 0);   $fwrite(wav, "%c", 0);
-            $fwrite(wav, "%c", 0);   $fwrite(wav, "%c", 0);
-        end
-    endtask
-
-    // 每次 sample_req 写一个样本
+    // 每次 sample_req 写一个样本（小端 16 位）
     reg req_d;
     always @(posedge clk) begin
         req_d <= dut.sample_req;
@@ -133,12 +111,11 @@ module tb_export_wav;
         req_d      = 1'b0;
         n_samples  = 0;
 
-        wav = $fopen("synth_demo.wav", "wb");
+        wav = $fopen("synth_demo.pcm", "wb");
         if (wav == 0) begin
-            $display("[ERROR] 无法创建 synth_demo.wav");
+            $display("[ERROR] 无法创建 synth_demo.pcm");
             $finish;
         end
-        wav_write_header;
 
         #(CLK_PERIOD * 20);
         rst_n = 1'b1;
