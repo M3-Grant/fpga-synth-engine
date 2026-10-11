@@ -131,11 +131,11 @@ module tb_export_wav;
         $display("  [1] 单音 C4");
         @(negedge clk); note_idx = 5'd0; note_on = 1; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 5000;
+        t0 = sample_tick + 30000;
         while (sample_tick < t0) @(negedge clk);
         @(negedge clk); note_idx = 5'd0; note_on = 0; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 2000;
+        t0 = sample_tick + 8000;
         while (sample_tick < t0) @(negedge clk);
 
         // ============ 2. C 大三和弦齐奏 ============
@@ -146,7 +146,7 @@ module tb_export_wav;
         @(negedge clk); note_valid = 0;
         @(negedge clk); note_idx = 5'd7; note_on = 1; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 8000;
+        t0 = sample_tick + 35000;
         while (sample_tick < t0) @(negedge clk);
 
         @(negedge clk); note_idx = 5'd0; note_on = 0; note_valid = 1;
@@ -155,35 +155,35 @@ module tb_export_wav;
         @(negedge clk); note_valid = 0;
         @(negedge clk); note_idx = 5'd7; note_on = 0; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 3000;
+        t0 = sample_tick + 11000;
         while (sample_tick < t0) @(negedge clk);
 
         // ============ 3. 琶音 ============
         $display("  [3] 琶音 C-E-G-C");
         @(negedge clk); note_idx = 5'd0; note_on = 1; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 2500;  while (sample_tick < t0) @(negedge clk);
+        t0 = sample_tick + 11000;  while (sample_tick < t0) @(negedge clk);
         @(negedge clk); note_idx = 5'd0; note_on = 0; note_valid = 1;
         @(negedge clk); note_valid = 0;
 
         @(negedge clk); note_idx = 5'd4; note_on = 1; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 2500;  while (sample_tick < t0) @(negedge clk);
+        t0 = sample_tick + 11000;  while (sample_tick < t0) @(negedge clk);
         @(negedge clk); note_idx = 5'd4; note_on = 0; note_valid = 1;
         @(negedge clk); note_valid = 0;
 
         @(negedge clk); note_idx = 5'd7; note_on = 1; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 2500;  while (sample_tick < t0) @(negedge clk);
+        t0 = sample_tick + 11000;  while (sample_tick < t0) @(negedge clk);
         @(negedge clk); note_idx = 5'd7; note_on = 0; note_valid = 1;
         @(negedge clk); note_valid = 0;
 
         @(negedge clk); note_idx = 5'd12; note_on = 1; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 2500;  while (sample_tick < t0) @(negedge clk);
+        t0 = sample_tick + 11000;  while (sample_tick < t0) @(negedge clk);
         @(negedge clk); note_idx = 5'd12; note_on = 0; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 2000;  while (sample_tick < t0) @(negedge clk);
+        t0 = sample_tick + 8000;  while (sample_tick < t0) @(negedge clk);
 
         // ============ 4. 四音叠加 ============
         $display("  [4] 四音叠加 C4+E4+G4+C5");
@@ -195,7 +195,7 @@ module tb_export_wav;
         @(negedge clk); note_valid = 0;
         @(negedge clk); note_idx = 5'd12; note_on = 1; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 8000;
+        t0 = sample_tick + 35000;
         while (sample_tick < t0) @(negedge clk);
 
         @(negedge clk); note_idx = 5'd0;  note_on = 0; note_valid = 1;
@@ -206,7 +206,7 @@ module tb_export_wav;
         @(negedge clk); note_valid = 0;
         @(negedge clk); note_idx = 5'd12; note_on = 0; note_valid = 1;
         @(negedge clk); note_valid = 0;
-        t0 = sample_tick + 3000;
+        t0 = sample_tick + 11000;
         while (sample_tick < t0) @(negedge clk);
 
         $fclose(wav);
