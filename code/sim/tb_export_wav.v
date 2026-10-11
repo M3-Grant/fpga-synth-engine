@@ -74,27 +74,28 @@ module tb_export_wav;
     end
 
     // ------------------------------------------------------------------
-    // 原始 PCM 写出（只写样本，不写 WAV 头）
+    // 导出样本（十六进制文本，每行一个 16 位样本）
     //
-    // ⚠ 为什么不在这里拼 WAV 头：
-    //   iverilog 的 $fwrite 只能顺序写文件，无法回填 RIFF ChunkSize
-    //   和 data 块大小，导致播放器无法确定数据长度而拒读。
-    //   因此这里只导出纯 PCM，由 tools/pcm_to_wav.py 封装标准 WAV。
+    // ⚠ 为什么不用 $fwrite("%c") 写二进制：
+    //   iverilog 的 %c 会把 NUL 字节(0x00)当字符串终止符，
+    //   而音频样本的低字节经常是 0x00，导致数据在第一个 0x00 处截断。
+    //   现象：WAV 文件头正常，但数据几乎为空，播放器显示时长 0、
+    //         只能听到极短的一段 —— 这个坑实际踩到过。
+    //   改用十六进制文本，完全避开二进制写入问题。
+    //
+    // 每行格式：XXXX（4 位十六进制，16 位有符号样本的补码）
+    //   例如 F800 = -2048，0800 = +2048
     // ------------------------------------------------------------------
     integer wav;
     integer n_samples;
     integer t0;                // 时间锚点（模块级，Verilog-2001 不允许在 initial 内声明）
-    reg [7:0] byte_lo, byte_hi;
 
-    // 每次 sample_req 写一个样本（小端 16 位）
     reg req_d;
+
     always @(posedge clk) begin
         req_d <= dut.sample_req;
         if (dut.sample_req && !req_d) begin
-            byte_lo   = dbg_mix[7:0];
-            byte_hi   = dbg_mix[15:8];
-            $fwrite(wav, "%c", byte_lo);       // 小端：低字节在前
-            $fwrite(wav, "%c", byte_hi);
+            $fwrite(wav, "%02x%02x\n", dbg_mix[15:8], dbg_mix[7:0]);
             n_samples = n_samples + 1;
         end
     end
@@ -111,9 +112,9 @@ module tb_export_wav;
         req_d      = 1'b0;
         n_samples  = 0;
 
-        wav = $fopen("synth_demo.pcm", "wb");
+        wav = $fopen("synth_demo.hex", "w");
         if (wav == 0) begin
-            $display("[ERROR] 无法创建 synth_demo.pcm");
+            $display("[ERROR] 无法创建 synth_demo.hex");
             $finish;
         end
 
@@ -212,7 +213,7 @@ module tb_export_wav;
         $display("==================================================");
         $display("  已导出 %0d 个采样", n_samples);
         $display("  时长 ≈ %0.2f 秒", n_samples / FS);
-        $display("  文件: synth_demo.wav");
+        $display("  文件: synth_demo.hex（十六进制文本）");
         $display("==================================================");
         $finish;
     end

@@ -11,6 +11,7 @@
 # 注意：synth_demo.wav / synth_demo_44k.wav 是音频交付物，**故意保留入库**
 i2s_capture.csv
 *.pcm
+*.hex
 
 # ---- Gowin 云源软件工程产物 ----
 impl/
