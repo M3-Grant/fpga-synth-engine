@@ -56,6 +56,9 @@ module tb_synth_top;
     always #(CLK_PERIOD/2) clk = ~clk;
 
     // sample_req 上升沿检测（用于同步采样音频样本）
+    // ⚠ 声明必须在使用之前 —— iverilog 不允许前向引用
+    //   （曾因把 reg req_d; 放在后面的观察任务区，导致编译失败）
+    reg req_d = 1'b0;
     always @(posedge clk) req_d <= dut.sample_req;
 
     // ---- 统计占用声部数 ----
@@ -72,7 +75,6 @@ module tb_synth_top;
     // 注意：mix_out 每 512 个 clk 才更新一次（512 = 64 BCK × 8 clk/BCK），
     //       因此必须在 sample_req 上升沿采样，否则读到的是重复值。
     integer max_val, min_val;
-    reg req_d;
 
     task observe_peak;
         integer n;
