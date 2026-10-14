@@ -1,19 +1,18 @@
-# ---- 仿真产物（可随时重新生成，不要进版本库）----
+﻿# ---- 浠跨湡浜х墿锛堝彲闅忔椂閲嶆柊鐢熸垚锛屼笉瑕佽繘鐗堟湰搴擄級----
 *.vcd
 *.lxt
 *.fst
 *.out
 *.vvp
 
-# ---- 仿真导出的数据文件 ----
-# i2s_capture.csv 由 tb_export_i2s.v 生成（约 870KB），可重新生成故不入库
-# synth_demo.pcm  由 tb_export_wav.v 生成的原始 PCM，由 pcm_to_wav.py 转 WAV
-# 注意：synth_demo.wav / synth_demo_44k.wav 是音频交付物，**故意保留入库**
+# ---- 浠跨湡瀵煎嚭鐨勬暟鎹枃浠?----
+# i2s_capture.csv 鐢?tb_export_i2s.v 鐢熸垚锛堢害 870KB锛夛紝鍙噸鏂扮敓鎴愭晠涓嶅叆搴?# synth_demo.pcm  鐢?tb_export_wav.v 鐢熸垚鐨勫師濮?PCM锛岀敱 pcm_to_wav.py 杞?WAV
+# 娉ㄦ剰锛歴ynth_demo.wav / synth_demo_44k.wav 鏄煶棰戜氦浠樼墿锛?*鏁呮剰淇濈暀鍏ュ簱**
 i2s_capture.csv
 *.pcm
 *.hex
 
-# ---- Gowin 云源软件工程产物 ----
+# ---- Gowin 浜戞簮杞欢宸ョ▼浜х墿 ----
 impl/
 *.fs
 *.bin
@@ -21,14 +20,15 @@ impl/
 *.rpt
 *.gprj.user
 
-# ---- 编辑器 / 系统 ----
+# ---- 缂栬緫鍣?/ 绯荤粺 ----
 .vscode/
 .idea/
 Thumbs.db
 .DS_Store
 *.swp
 
-# ---- 临时文件 ----
+# ---- 涓存椂鏂囦欢 ----
 *.tmp
 *.bak
 ~$*
+build/

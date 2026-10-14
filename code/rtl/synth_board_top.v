@@ -157,7 +157,7 @@ module synth_board_top #(
         .VOICE_NUM  (VOICE_NUM),
         .PHASE_BITS (32),
         .BCK_HALF   (BCK_HALF),
-        .AMP        (16'sh2000),
+        .AMP        (16'sh0800),        // 1/16 满量程（原 1/4 实测太吵，降 12dB）
         .NOTE_BITS  (NOTE_BITS)
     ) u_synth (
         .clk            (clk),
@@ -193,7 +193,7 @@ module synth_board_top #(
     // 1 = 点亮
     wire [5:0] led_on = {
         scale_pos,               // [5:3] 音阶位置
-        2'b00,                   // [2]   预留（按键指示并入 heartbeat）
+        1'b0,                    // [2]   预留
         note_active,             // [1]   正在发声
         blink[23]                // [0]   心跳
     };

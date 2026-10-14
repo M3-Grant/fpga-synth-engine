@@ -75,7 +75,12 @@ module osc_voice #(
         end
         else if (sample_en) begin
             if (gate) begin
-                sample <= modulated >>> 8;   // 除以 256
+                // 显式取 [23:8] 而非 modulated >>> 8：
+                // 33 位算术右移 8 位后赋给 16 位，等价于取低 16 位 = modulated[23:8]。
+                // 写成位选是为了消除 Gowin 综合告警 EX3791（按位宽 25→16 判截断）。
+                // 值域校核：AMP=8192, env_gain∈[1,256] → |modulated| ≤ 2097152 = 2^21，
+                //           >>>8 后 |结果| ≤ 8192，16 位有符号(±32767)足够，无溢出。
+                sample <= modulated[23:8];
             end
             else begin
                 sample <= 16'sd0;

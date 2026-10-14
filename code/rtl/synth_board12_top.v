@@ -85,7 +85,7 @@ module synth_board12_top #(
         .VOICE_NUM  (VOICE_NUM),
         .PHASE_BITS (32),
         .BCK_HALF   (BCK_HALF),
-        .AMP        (16'sh2000),
+        .AMP        (16'sh0800),        // 1/16 满量程（原 1/4 实测太吵，降 12dB）
         .NOTE_BITS  (NOTE_BITS)
     ) u_synth (
         .clk            (clk),
