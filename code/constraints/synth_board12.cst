@@ -3,65 +3,81 @@
 //  功能    : 12 键电子琴板级约束
 //  板卡    : Sipeed Tang Nano 20K (GW2AR-18)
 //
-//  ⚠⚠ 重要：按键引脚号必须对照实物/Wiki 核实后再烧录 ⚠⚠
+//  ── 引脚依据（重要）──────────────────────────────────────────────
+//  下列引脚全部来自**官方例程的 .cst 文件**，不是估算：
+//      · rgb_lcd/.../tang_nano_20K_LCD.cst  → 27~32, 41, 42, 48, 77
+//      · ws2812/src/ws2812.cst              → 79
+//      · 引脚框图（Sipeed Wiki）             → 25（排针上，标注 LED_HS）
 //
-//  下面 12 个引脚是「候选分配」，依据是：
-//      · 已确认占用的引脚（时钟/LED/HDMI/I2S/UART/板载按键）已排除
-//      · 从剩余引脚区间中选取
-//  但 40pin 扩展口的**实际引出引脚**需要你们对照板卡丝印或
-//  https://wiki.sipeed.com/nano20k 的引脚定义表确认。
+//  这些引脚原本是 RGB LCD / WS2812 的接口。**不用 LCD 屏时**即可作
+//  普通 GPIO 使用 —— 本项目不用 LCD，所以全部可用。
 //
-//  核实方法：在 Gowin 里导入本约束后看 FloorPlanner，
-//            若某引脚报错或不在扩展口上，换一个候选即可。
+//  ── 已占用/避开的引脚 ────────────────────────────────────────────
+//      4       : 板载 27MHz 时钟
+//      15~20   : 板载 6 颗 LED
+//      33~40   : HDMI TMDS 差分 + LCD 数据线（复用，避开）
+//      51      : PA_EN（功放使能）
+//      54,55,56: I2S DIN / WS / BCK
+//      69,70   : UART TX/RX
+//      87,88   : 板载用户按键 / 复位按键（**不可占用**）
 //
-//  修改方式：只改下面 12 行 IO_LOC 的引脚号，代码不用动
+//  ── 按键接线（TTP223 触摸模块）──────────────────────────────────
+//      TTP223 VCC → 板卡 3.3V
+//      TTP223 GND → 板卡 GND
+//      TTP223 I/O → 对应 key 引脚
+//      TTP223 A/B 焊盘 → 都不焊（默认高有效，匹配 ACTIVE_LOW=0）
+//
+//  ── 修改方式 ────────────────────────────────────────────────────
+//  只改下面 12 行 IO_LOC 的引脚号，Verilog 代码不用动
 // ============================================================================
 
 // ---- 板载 27MHz 时钟 ----
 IO_LOC "clk" 4;
 IO_PORT "clk" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
 
-// ---- 12 路按键输入（TTP223 触摸模块，高电平有效）----
-// 建议把 12 个触摸键排成钢琴键盘布局：
-//   白键 7 个（C D E F G A B）+ 黑键 5 个（C# D# F# G# A#）
-IO_LOC "key[0]"  25;
+// ====================================================================
+// 12 路按键输入（TTP223 触摸模块，高电平有效）
+// 建议物理排布成钢琴键盘：白键 7 个 + 黑键 5 个
+// ====================================================================
+IO_LOC "key[0]"  27;
 IO_PORT "key[0]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-IO_LOC "key[1]"  26;
+IO_LOC "key[1]"  28;
 IO_PORT "key[1]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-IO_LOC "key[2]"  27;
+IO_LOC "key[2]"  29;
 IO_PORT "key[2]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-IO_LOC "key[3]"  28;
+IO_LOC "key[3]"  30;
 IO_PORT "key[3]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-IO_LOC "key[4]"  29;
+IO_LOC "key[4]"  31;
 IO_PORT "key[4]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-IO_LOC "key[5]"  30;
+IO_LOC "key[5]"  32;
 IO_PORT "key[5]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-IO_LOC "key[6]"  31;
+IO_LOC "key[6]"  41;
 IO_PORT "key[6]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-IO_LOC "key[7]"  32;
+IO_LOC "key[7]"  42;
 IO_PORT "key[7]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-IO_LOC "key[8]"  41;
+IO_LOC "key[8]"  48;
 IO_PORT "key[8]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-IO_LOC "key[9]"  42;
+IO_LOC "key[9]"  77;
 IO_PORT "key[9]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-// 这两个是板载按键（TTP223 不够时可先用板载键顶替）
-IO_LOC "key[10]" 87;
+IO_LOC "key[10]" 79;
 IO_PORT "key[10]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-IO_LOC "key[11]" 88;
+IO_LOC "key[11]" 25;
 IO_PORT "key[11]" IO_TYPE=LVCMOS33 PULL_MODE=DOWN SINGLE_RESISTOR=ON BANK_VCCIO=3.3;
 
-// ---- I2S 输出 → 板载 MAX98357A（或外接 PCM5102A）----
+// ====================================================================
+// I2S 输出 → 板载 MAX98357A（引脚依据：官方 audio.cst）
+// ====================================================================
 IO_LOC "i2s_din" 54;
 IO_PORT "i2s_din" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
 
@@ -71,11 +87,12 @@ IO_PORT "i2s_lrck" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
 IO_LOC "i2s_bck" 56;
 IO_PORT "i2s_bck" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
 
-// ---- 板载功放使能 ----
 IO_LOC "pa_en" 51;
 IO_PORT "pa_en" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
 
-// ---- 板载 6 颗 LED（低电平点亮）----
+// ====================================================================
+// 板载 6 颗 LED（低电平点亮，引脚依据：官方 flow_led.cst）
+// ====================================================================
 IO_LOC "led[0]" 15;
 IO_PORT "led[0]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
 
