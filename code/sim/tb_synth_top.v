@@ -81,9 +81,13 @@ module tb_synth_top;
         begin
             max_val = -32768;
             min_val =  32767;
-            // 3000 clk ≈ 5.8 个采样周期（512 clk/周期）
+            // ⚠️ 窗口必须覆盖足够多的音频周期，否则采不到连续波形（三角波/正弦）的峰值！
+            //    150000 clk ÷ 512 = 293 个采样周期。A4(440Hz) 一个周期约 120 个采样，
+            //    即覆盖约 2.4 个完整周期 —— 每个周期有 2 个峰值时刻，必定采到。
+            //    旧值 3000 clk 只有 5.8 个采样（周期的 4.8%）：方波时每个采样都是
+            //    ±AMP 所以碰巧总能采到，换成三角波后峰值只出现在极短瞬间就漏采了。
             // ⚠ dbg_mix 是 mix_out 再寄存一级，需在 sample_req 之后再等 1 clk 采样
-            for (n = 0; n < 3000; n = n + 1) begin
+            for (n = 0; n < 150000; n = n + 1) begin
                 @(posedge clk);
                 if (dut.sample_req && !req_d) begin
                     @(posedge clk);          // 等 dbg_mix 更新
@@ -103,7 +107,11 @@ module tb_synth_top;
         begin
             @(negedge clk); note_idx = n; note_on = 1'b1; note_valid = 1'b1;
             @(negedge clk); note_valid = 1'b0;
-            repeat (8000) @(negedge clk);      // 等包络上升到 SUS_LEVEL
+            // ⚠️ 必须等到包络真正进入 SUSTAIN，否则测到的不是稳态幅度。
+            //    ATTACK 32 次 + DECAY 48 次 = 80 次包络更新，每次间隔 512 clk
+            //    → 约 40960 clk；这里给 60000 留余量。
+            //    （旧值 8000 clk 只走了 15 次更新，还停在 ATTACK 中途）
+            repeat (60000) @(negedge clk);
         end
     endtask
 
@@ -228,7 +236,7 @@ module tb_synth_top;
     end
 
     initial begin
-        #(CLK_PERIOD * 500000);
+        #(CLK_PERIOD * 5000000);   // 观测窗口加大后总仿真时长变长，超时同步放宽
         $display("[ERROR] 仿真超时");
         $finish;
     end

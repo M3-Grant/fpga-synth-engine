@@ -57,7 +57,11 @@ module tb_synth_board12;
         begin
             max_val = -32768;
             min_val =  32767;
-            for (n = 0; n < 4000; n = n + 1) begin
+            // ⚠️ 窗口必须覆盖足够多的音频周期，否则采不到三角波的峰值！
+            //    150000 clk ÷ 512 = 293 个采样周期（C4 一个周期约 201 个采样 → 约 1.5 个周期，
+            //    每个周期有 2 个峰值时刻，必定采到）
+            //    旧值 4000 clk 只有 7.8 个采样，方波碰巧能采到、三角波必然漏采
+            for (n = 0; n < 150000; n = n + 1) begin
                 @(posedge clk);
                 if (dut.u_synth.sample_req && !req_d) begin
                     @(posedge clk);
@@ -123,7 +127,8 @@ module tb_synth_board12;
         peak = (max_val > -min_val) ? max_val : -min_val;
         $display("        混音峰值 = %0d", peak);
         chk("有音频输出", peak > 100);
-        chk("幅度合理（期望约 210）", (peak > 120) && (peak < 450));   // AMP=1/16 满量程下实测 210
+        chk("幅度合理（期望约 964）", (peak > 700) && (peak < 1300));
+        // AMP=3/16(6144) 三角波：理论峰值 = 6144 × 160/255 ÷ 4 = 964，实测 965
 
         // ============ 检查3：松键后静音 ============
         $display("[检查3] 松开 KEY0 → 余韵后静音");
@@ -176,7 +181,7 @@ module tb_synth_board12;
     end
 
     initial begin
-        #(CLK_PERIOD * 1000000);
+        #(CLK_PERIOD * 5000000);   // 观测窗口加大后总仿真时长变长，超时同步放宽
         $display("[ERROR] 仿真超时");
         $finish;
     end
