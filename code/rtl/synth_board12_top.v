@@ -101,9 +101,22 @@ module synth_board12_top #(
     );
 
     // ==================================================================
-    // 4. 板载功放使能（常开）
+    // 4. 板载功放使能门控（降温）
+    //    有音符发声时立即开启；静音后再保持约 155ms 才关闭。
+    //    保持窗口避免音符间隙反复开关功放（会产生"啪"声），
+    //    同时静音时功放断电，显著降低 MAX98357A 的发热。
+    //    27MHz × 155ms ≈ 4.19e6 → 取 2^22-1 = 4194303
     // ==================================================================
-    assign pa_en = 1'b1;
+    wire any_busy = |dbg_voice_busy;
+    reg [21:0] pa_hold;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)                pa_hold <= 22'd0;
+        else if (any_busy)         pa_hold <= 22'h3FFFFF;      // 重新计时
+        else if (pa_hold != 22'd0) pa_hold <= pa_hold - 22'd1;
+    end
+
+    assign pa_en = (pa_hold != 22'd0);
 
     // ==================================================================
     // 5. LED 指示（低电平点亮）
@@ -127,9 +140,7 @@ module synth_board12_top #(
         end
     end
 
-    wire any_busy = |dbg_voice_busy;
-
-    // 1 = 点亮
+    // 1 = 点亮（any_busy 已在第 4 节定义）
     wire [5:0] led_on = {
         3'b000,          // [5:3] 预留
         evt_stretch,     // [2]   事件指示

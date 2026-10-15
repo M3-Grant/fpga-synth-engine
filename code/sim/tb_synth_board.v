@@ -70,7 +70,10 @@ module tb_synth_board;
         begin
             max_val = -32768;
             min_val =  32767;
-            for (n = 0; n < 4000; n = n + 1) begin
+            // ⚠️ 窗口必须覆盖足够多的音频周期，否则采不到三角波的峰值！
+            //    150000 clk ÷ 512 = 293 个采样周期（C4 约 201 采样/周期 → 约 1.5 个周期）
+            //    旧值 4000 clk 只有 7.8 个采样，方波碰巧能采到、三角波必然漏采
+            for (n = 0; n < 150000; n = n + 1) begin
                 @(posedge clk);
                 if (dut.u_synth.sample_req && !req_d) begin
                     @(posedge clk);
@@ -124,6 +127,10 @@ module tb_synth_board;
         if (peak > 100) $display("  [PASS] 有音频输出（峰值 %0d）", peak);
         else begin $display("  [FAIL] 无音频输出（峰值 %0d）", peak); errors = errors + 1; end
 
+        // 功放使能门控：发声时应当立即拉高
+        if (pa_en === 1'b1) $display("  [PASS] 发声时功放使能已拉高");
+        else begin $display("  [FAIL] 发声时 pa_en = %b", pa_en); errors = errors + 1; end
+
         // ===== 检查3：按 KEY1 再停声 =====
         $display("[检查3] 再按 KEY1 → 停声");
         press_key1;
@@ -175,8 +182,11 @@ module tb_synth_board;
             else begin $display("  [FAIL] BCK 几乎不翻转（%0d 次）", toggles); errors = errors + 1; end
         end
 
-        if (pa_en === 1'b1) $display("  [PASS] 功放使能已拉高");
-        else begin $display("  [FAIL] pa_en = %b", pa_en); errors = errors + 1; end
+        // 功放使能门控：停声之后累计静音约
+        //   600000 + 40000 + 150000 + 600000 + 7×600000 + 20000 ≈ 5.61M clk ≈ 208ms
+        // 早已超过 155ms 的保持窗口，此处 pa_en 应当已自动拉低（省电降温）
+        if (pa_en === 1'b0) $display("  [PASS] 长时间静音后功放已自动关闭（门控生效）");
+        else begin $display("  [FAIL] 静音 208ms 后 pa_en 仍为 %b", pa_en); errors = errors + 1; end
 
         // ===== 检查6：LED 心跳 =====
         $display("[检查6] LED 心跳");
