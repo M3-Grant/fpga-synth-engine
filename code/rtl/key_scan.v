@@ -19,6 +19,7 @@
 //
 //  作者    : 第三代 beta3
 // ============================================================================
+`timescale 1ns / 1ps
 module key_scan #(
     parameter KEY_NUM    = 12,        // 按键数
     parameter CNT_MAX    = 270_000,   // 消抖时间（27MHz 下约 10ms）
@@ -108,10 +109,28 @@ module key_scan #(
         end
     endfunction
 
-    wire              has_press = |press_lat;
-    wire              has_rel   = |rel_lat;
-    wire [3:0]        p_idx     = find_lowest(press_lat);
-    wire [3:0]        r_idx     = find_lowest(rel_lat);
+    // ---- 先与新到的边沿事件合并，再判断/上报 ----
+    // 判断和上报都必须基于**合并后**的值，否则「这一拍刚来的事件」
+    // 要等到下一拍才被看见，白白多花一拍。
+    wire [KEY_NUM-1:0] press_merged = press_lat | key_press;
+    wire [KEY_NUM-1:0] rel_merged   = rel_lat   | key_release;
+
+    wire              has_press = |press_merged;
+    wire              has_rel   = |rel_merged;
+    wire [3:0]        p_idx     = find_lowest(press_merged);
+    wire [3:0]        r_idx     = find_lowest(rel_merged);
+
+    // ---- 下一拍的锁存值：把本拍上报掉的那一位清掉 ----
+    reg [KEY_NUM-1:0] press_next;
+    reg [KEY_NUM-1:0] rel_next;
+
+    always @(*) begin
+        press_next = press_merged;
+        if (has_press) press_next[p_idx] = 1'b0;
+
+        rel_next = rel_merged;
+        if (has_rel && !has_press) rel_next[r_idx] = 1'b0;
+    end
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -126,25 +145,17 @@ module key_scan #(
             key_state_d <= key_state;
             note_valid  <= 1'b0;                 // 默认无事件
 
-            // ---- 登记新到的边沿事件 ----
-            // 注意：key_press / key_release 本来就已经是单周期脉冲
-            // （debounce 内部做了边沿检测，key_release 是 key_state 的下降沿）
-            // 这里不能写成 `press_lat <= press_lat | key_press` ——
-            // 那会让 bit 一直保持，导致同一按键被反复上报。
-            if (key_press != {KEY_NUM{1'b0}}) begin
-                press_lat <= key_press;
-            end
-            else if (has_press) begin
-                // 上报后清掉已处理的位
-                press_lat[p_idx] <= 1'b0;
-            end
-
-            if (key_release != {KEY_NUM{1'b0}}) begin
-                rel_lat <= key_release;
-            end
-            else if (has_rel && !has_press) begin
-                rel_lat[r_idx] <= 1'b0;
-            end
+            // ---- 锁存更新：合并新事件 + 清掉本拍已上报的位 ----
+            // 🔴 原写法是个真 bug（和弦缺音）：
+            //      if (key_press)  press_lat <= key_press;        // 覆盖赋值
+            //      else if (has_press) press_lat[p_idx] <= 0;
+            //   ① 覆盖 → 和弦上报途中若有新键按下，未处理的位被冲掉，
+            //      实测 C-E-G 三音和弦里 G4 的 note-on 次数变成 0（音不响）。
+            //   ② 若只改成 |= 累积而不改清除，又变成同一位被上报两次
+            //      （E4 收到 2 次 note-on），会重复触发。
+            //   最终方案：合并 → 上报 → 清除 在同一拍一起完成。
+            press_lat <= press_next;
+            rel_lat   <= rel_next;
 
             // ---- 上报（按下优先），每拍一个事件 ----
             if (has_press) begin

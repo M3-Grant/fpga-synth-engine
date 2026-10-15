@@ -54,7 +54,7 @@ IO_PORT "key[3]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN BANK_VCCIO=3.3;
 IO_LOC "key[4]"  31;
 IO_PORT "key[4]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN BANK_VCCIO=3.3;
 
-IO_LOC "key[5]"  32;
+IO_LOC "key[5]"  26;    // [修正] 原为 32 —— 引脚图核实：32 未引出到 40pin 排针
 IO_PORT "key[5]"  IO_TYPE=LVCMOS33 PULL_MODE=DOWN BANK_VCCIO=3.3;
 
 IO_LOC "key[6]"  41;

@@ -82,6 +82,10 @@ $suites = [ordered]@{
                 "${R}oscillator_array.v", "${R}note_alloc.v", "${R}mix_tree.v",
                 "${R}synth_top.v", "${R}synth_board12_top.v", "${S}synth_board12.v")
     }
+    'key12_notes' = @{
+        out = 'sim_key12.out'
+        src = @("${R}debounce.v", "${R}key_scan.v", "${S}key12_notes.v")
+    }
 }
 
 $failed  = @()
