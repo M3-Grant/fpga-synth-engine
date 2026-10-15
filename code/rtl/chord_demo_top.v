@@ -83,6 +83,23 @@ module chord_demo_top #(
     wire evt_strobe = (ms_cnt == 16'd0);
 
     // ==================================================================
+    // 2b. 轮次计数：每一轮（15 秒）结束后 +1，用于轮换演示四种音色
+    // ==================================================================
+    reg [1:0] round = 2'd0;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)                                   round <= 2'd0;
+        else if (ms_cnt == MS_MAX && tick >= TICK_MAX) round <= round + 2'd1;
+    end
+
+    // 波形选择：每轮换一种
+    //   第 1 轮 00 三角波（柔和）
+    //   第 2 轮 01 方波  （明亮）
+    //   第 3 轮 10 锯齿波（饱满）
+    //   第 4 轮 11 脉冲波（薄、带鼻音）
+    wire [1:0] wave_sel = round;
+
+    // ==================================================================
     // 3. 音符编号（note_table 索引：0=C4，每 +1 一个半音）
     // ==================================================================
     localparam [4:0] N_C4 = 5'd0,  N_D4 = 5'd2,  N_E4 = 5'd4,  N_F4 = 5'd5;
@@ -171,6 +188,7 @@ module chord_demo_top #(
         .note_valid     (evt_valid),
         .note_on        (evt_on),
         .note_idx       (evt_idx),
+        .wave_sel       (wave_sel),
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),
         .i2s_din        (i2s_din),

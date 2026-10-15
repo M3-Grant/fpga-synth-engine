@@ -30,6 +30,7 @@ module oscillator_array #(
     input  wire [VOICE_NUM*PHASE_BITS-1:0] voice_fcw,      // 每声部频率控制字
     input  wire [VOICE_NUM*8-1:0]          voice_env,      // 每声部包络电平
     input  wire [VOICE_NUM-1:0]            voice_gate,     // 每声部开关
+    input  wire [1:0]                      wave_sel,       // 波形选择（全体声部共用）
     output wire [VOICE_NUM*16-1:0]         voice_sample    // 每声部输出样本
 );
 
@@ -46,6 +47,7 @@ module oscillator_array #(
                 .fcw       (voice_fcw [i*PHASE_BITS +: PHASE_BITS]),
                 .env       (voice_env [i*8 +: 8]),
                 .gate      (voice_gate[i]),
+                .wave_sel  (wave_sel),
                 .sample    (voice_sample [i*16 +: 16])
             );
         end

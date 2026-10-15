@@ -38,6 +38,8 @@ module synth_top #(
     input  wire                    note_valid,
     input  wire                    note_on,
     input  wire [NOTE_BITS-1:0]    note_idx,
+    // ---- 音色控制 ----
+    input  wire [1:0]              wave_sel,  // 波形：00三角 01方波 10锯齿 11脉冲
     // ---- I2S 输出 ----
     output wire                    i2s_bck,
     output wire                    i2s_lrck,
@@ -133,6 +135,7 @@ module synth_top #(
         .voice_fcw    (voice_fcw),
         .voice_env    (voice_env),
         .voice_gate   (voice_busy),
+        .wave_sel     (wave_sel),
         .voice_sample (voice_sample)
     );
 

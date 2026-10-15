@@ -165,6 +165,7 @@ module synth_board_top #(
         .note_valid     (note_valid_r),
         .note_on        (note_on_r),
         .note_idx       (note_idx_r),
+        .wave_sel       (2'b00),        // 三角波；第二交互维度接入后由 gesture_ctrl 驱动
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),
         .i2s_din        (i2s_din),
