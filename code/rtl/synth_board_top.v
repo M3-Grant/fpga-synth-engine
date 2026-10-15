@@ -157,7 +157,7 @@ module synth_board_top #(
         .VOICE_NUM  (VOICE_NUM),
         .PHASE_BITS (32),
         .BCK_HALF   (BCK_HALF),
-        .AMP        (16'sh1000),        // 1/8 满量程（实测定档：昨天的 1/2）
+        .AMP        (16'sh1800),        // 3/16 满量程（三角波实测定档）
         .NOTE_BITS  (NOTE_BITS)
     ) u_synth (
         .clk            (clk),

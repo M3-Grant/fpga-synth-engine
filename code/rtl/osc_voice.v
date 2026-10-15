@@ -60,10 +60,6 @@ module osc_voice #(
     //    实测依据：2026-10-15 手机频谱显示方波能量一直拖到 10kHz 以上
     // ------------------------------------------------------------------
     localparam WAVE_TRI = 1;    // ← 改 0 即可回到方波
-    localparam TRI_SHR  = 2;    // 三角波缩放，须满足 (16384 >> TRI_SHR) == AMP
-                                //   AMP = 1/8  满量程(4096) → TRI_SHR = 2  ← 当前
-                                //   AMP = 1/4  满量程(8192) → TRI_SHR = 1
-                                //   AMP = 1/16 满量程(2048) → TRI_SHR = 3
 
     // 方波：取相位最高位
     wire signed [15:0] square = phase[PHASE_BITS-1] ? AMP : -AMP;
@@ -71,16 +67,20 @@ module osc_voice #(
     // 三角波：把相位高 16 位折叠一次，得到 0→32767→0 的一个完整周期
     //   u     = phase[31:16]        0 ~ 65535
     //   tri_u = u[15] ? ~u : u      0 ~ 32767 ~ 0
-    //   tri_f = tri_u >> TRI_SHR    0 ~ 8191          （TRI_SHR = 2 时）
-    //   tri_w = tri_f - 4096        -4096 ~ +4095     （无符号减法补码回绕，
-    //                              位模式直接就是正确的有符号值）
+    //   tri_c = tri_u - 16384      -16384 ~ +16383     （居中）
+    //   tri_m = tri_c * AMP        ±16384 × AMP
+    //   tri_w = tri_m >>> 14       ±AMP                （与方波同幅）
     //   ⚠️ 变量名不能叫 tri —— tri 是 Verilog 内置线网类型（三态线网）的关键字
+    //   注：AMP 是编译期常数，× AMP 会被综合器展开成移位加法，不占 DSP 乘法器
     wire [15:0]        u     = phase[PHASE_BITS-1:PHASE_BITS-16];
     wire [15:0]        tri_u = u[15] ? ~u : u;
-    wire [15:0]        tri_f = tri_u >> TRI_SHR;
-    wire signed [15:0] tri_w = tri_f - (16'd16384 >> TRI_SHR);
+    wire signed [16:0] tri_c = {1'b0, tri_u} - 17'sd16384;
+    wire signed [32:0] tri_m = tri_c * $signed({1'b0, AMP});
+    // 位选 [29:14] 等价于 (tri_m >>> 14) 再取低 16 位。
+    // 写成显式位选是为了消除 Gowin 的 EX3791 截断告警（它按位宽 33→16 判截断）。
+    wire signed [15:0] tri_w = tri_m[29:14];
 
-    // 波形选择（方波与三角波峰值都约等于 AMP，切换不会剧变音量）
+    // 波形选择（方波与三角波峰值都等于 AMP，切换不会剧变音量）
     wire signed [15:0] wave  = WAVE_TRI ? tri_w : square;
 
     // ------------------------------------------------------------------

@@ -34,7 +34,7 @@ module chord_demo_top #(
     parameter VOICE_NUM = 4,
     parameter NOTE_BITS = 5,
     parameter BCK_HALF  = 4,
-    parameter AMP       = 16'sh1000,   // 1/8 满量程（实测定档：昨天的 1/2，比 1/16 大一倍）
+    parameter AMP       = 16'sh1800,   // 3/16 满量程（三角波实测定档，比 1/8 高 3.5dB）
     parameter TICK_MAX  = 16'd15000    // 一轮 15000 ms = 15 秒
 )(
     input  wire        clk,        // 27 MHz，引脚 4

@@ -35,7 +35,7 @@
 module tone_test_top #(
     parameter FCW      = 32'd35835935,  // A4 = 440 Hz
     parameter BCK_HALF = 4,             // BCK = 27MHz/8 = 3.375MHz → fs = 52734.375Hz
-    parameter AMP      = 16'sh1000      // 幅度 = 1/8 满量程（实测定档：昨天的 1/2）
+    parameter AMP      = 16'sh1800      // 幅度 = 3/16 满量程（实测定档）
 )(
     input  wire        clk,        // 27 MHz，引脚 4
     output wire        i2s_bck,    // 位时钟，引脚 56
