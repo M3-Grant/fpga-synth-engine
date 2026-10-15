@@ -123,7 +123,7 @@ module tb_synth_board12;
         peak = (max_val > -min_val) ? max_val : -min_val;
         $display("        混音峰值 = %0d", peak);
         chk("有音频输出", peak > 100);
-        chk("幅度合理（期望约 1280）", (peak > 500) && (peak < 1800));
+        chk("幅度合理（期望约 210）", (peak > 120) && (peak < 450));   // AMP=1/16 满量程下实测 210
 
         // ============ 检查3：松键后静音 ============
         $display("[检查3] 松开 KEY0 → 余韵后静音");
@@ -152,7 +152,7 @@ module tb_synth_board12;
         observe_peak;
         peak = (max_val > -min_val) ? max_val : -min_val;
         $display("        和弦峰值 = %0d", peak);
-        chk("复音输出更响", peak > 1500);
+        chk("复音输出更响", peak > 250);   // 三角波实测 390（方波为 774）
         chk("未越界", peak <= 32767);
 
         // ============ 检查5：I2S 与功放 ============

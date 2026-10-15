@@ -15,7 +15,7 @@
         This script always emits that option.
 #>
 param(
-    [ValidateSet('tone_test', 'synth_board12', 'synth_board')]
+    [ValidateSet('tone_test', 'chord_demo', 'synth_board12', 'synth_board')]
     [string]$Target = 'tone_test',
 
     [ValidateSet('none', 'sram', 'flash')]
@@ -41,6 +41,13 @@ $targets = @{
         Top = 'tone_test_top'
         Rtl = @('i2s_tx.v', 'tone_test_top.v')
         Cst = 'tone_test.cst'
+    }
+    'chord_demo' = @{
+        Top = 'chord_demo_top'
+        Rtl = @('i2s_tx.v', 'note_table.v', 'adsr.v', 'osc_voice.v',
+                'oscillator_array.v', 'note_alloc.v', 'mix_tree.v',
+                'synth_top.v', 'chord_demo_top.v')
+        Cst = 'tone_test.cst'   # 端口与 tone_test_top 一致，直接复用约束
     }
     'synth_board12' = @{
         Top = 'synth_board12_top'
