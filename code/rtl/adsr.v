@@ -16,7 +16,7 @@
 //  ── 实现要点 ──────────────────────────────────────────────────────
 //  1) 线性递增/递减，用整数加减，**彻底避开位宽与饱和的坑**
 //     （早期版本用移位乘法逼近指数曲线，因位宽截断导致 env 跳变）
-//  2) 事件锁存：note_on 跳变可能发生在任意时刻，而包络每 sample_en
+//  2) 事件锁存：note_on / trig 跳变可能发生在任意时刻，而包络每 sample_en
 //     才更新一次。用 trig_pending / rel_pending 锁存事件，避免漏掉。
 //     这与 note_alloc 处理 note_valid 的思路一致。
 //  3) env 只在 sample_en 时更新，与整个音频通路保持同一节拍。
@@ -33,7 +33,8 @@ module adsr #(
     input  wire                  clk,
     input  wire                  rst_n,
     input  wire                  sample_en,   // 音频采样使能
-    input  wire                  note_on,     // 1 = 按下 / 0 = 松开
+    input  wire                  trig,        // note-on 单周期脉冲（抢占/重按也会来）
+    input  wire                  note_on,     // 电平：1 = 按住 / 0 = 松开
     input  wire                  gate,        // 1 = 该声部正在发声
     output reg  [ENV_BITS-1:0]   env          // 包络电平 0~255
 );
@@ -52,11 +53,19 @@ module adsr #(
     reg trig_pending;
     reg rel_pending;
 
-    wire trig_edge =  note_on & ~note_on_d;
     wire rel_edge  = ~note_on &  note_on_d;
 
     // ------------------------------------------------------------------
     // 事件锁存
+    //
+    // 为什么要单独的 trig 端口（2026-10-18 修正）：
+    //   原来 trig_edge = note_on & ~note_on_d，靠 note_on 的上升沿起音。
+    //   但 synth_top 里 note_on 接的是 voice_trig | voice_busy ——
+    //   抢占（4 声部占满时按第 5 个键）时 voice_busy 一直是 1，
+    //   voice_trig 只在单拍脉冲，note_on 根本没有上升沿 →
+    //   包络不重新起音，新音"没有音头"。
+    //   现在直接接收 note-on 脉冲，抢占与重复按键都能正确起音。
+    //   note_on 电平只用来检测"松开"（下降沿 → RELEASE）。
     // ------------------------------------------------------------------
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -67,7 +76,7 @@ module adsr #(
         else begin
             note_on_d <= note_on;
 
-            if (trig_edge)          trig_pending <= 1'b1;
+            if (trig)               trig_pending <= 1'b1;
             else if (sample_en)     trig_pending <= 1'b0;
 
             if (rel_edge)           rel_pending <= 1'b1;

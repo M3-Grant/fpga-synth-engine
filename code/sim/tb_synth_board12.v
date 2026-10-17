@@ -127,14 +127,17 @@ module tb_synth_board12;
         peak = (max_val > -min_val) ? max_val : -min_val;
         $display("        混音峰值 = %0d", peak);
         chk("有音频输出", peak > 100);
-        chk("幅度合理（期望约 1928）", (peak > 1700) && (peak < 2150));
-        // AMP=3/8(12288) 三角波：理论峰值 = 12288 × 160/255 ÷ 4 = 1928，实测 1929
-        // （beta.2 为 AMP=3/16(6144) → 964；本次音量 +6 dB 后期望值同步 ×2）
+        chk("幅度合理（钢琴音色，期望 5000 左右）", (peak > 3000) && (peak < 9000));
+        // beta.3 起 synth_board12_top 默认音色 = 3'b100（钢琴）：
+        //   6 次谐波加法合成，单声部实测峰值约 5050（beta.2.1 三角波为 1928）
+        //   4 声部最坏 32768，饱和逻辑兜底，正常不会削波
 
         // ============ 检查3：松键后静音 ============
         $display("[检查3] 松开 KEY0 → 余韵后静音");
         @(negedge clk); key = {KEY_NUM{1'b0}};
-        run_clks(40000);                     // 等包络 RELEASE 走完
+        // 钢琴的 damper 约 75 ms 归零（实测：+18ms 1752 → +37ms 244 → +75ms 0）
+        // 75 ms ≈ 3955 个采样 = 2.03e6 clk，这里给到 2.5e6 clk 留余量
+        run_clks(2500000);
         chk("声部全部释放", dut.dbg_voice_busy == 4'b0000);
 
         observe_peak;

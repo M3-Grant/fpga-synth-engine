@@ -46,21 +46,21 @@ $targets = @{
         Top = 'chord_demo_top'
         Rtl = @('i2s_tx.v', 'note_table.v', 'adsr.v', 'osc_voice.v',
                 'oscillator_array.v', 'note_alloc.v', 'mix_tree.v',
-                'synth_top.v', 'chord_demo_top.v')
+                'piano_engine.v', 'synth_top.v', 'chord_demo_top.v')
         Cst = 'tone_test.cst'   # 端口与 tone_test_top 一致，直接复用约束
     }
     'synth_board12' = @{
         Top = 'synth_board12_top'
         Rtl = @('clk_div.v', 'debounce.v', 'key_scan.v', 'i2s_tx.v', 'note_table.v',
                 'adsr.v', 'osc_voice.v', 'oscillator_array.v', 'note_alloc.v',
-                'mix_tree.v', 'synth_top.v', 'synth_board12_top.v')
+                'mix_tree.v', 'piano_engine.v', 'synth_top.v', 'synth_board12_top.v')
         Cst = 'synth_board12.cst'
     }
     'synth_board' = @{
         Top = 'synth_board_top'
         Rtl = @('clk_div.v', 'debounce.v', 'i2s_tx.v', 'note_table.v',
                 'adsr.v', 'osc_voice.v', 'oscillator_array.v', 'note_alloc.v',
-                'mix_tree.v', 'synth_top.v', 'synth_board_top.v')
+                'mix_tree.v', 'piano_engine.v', 'synth_top.v', 'synth_board_top.v')
         Cst = 'synth_board.cst'
     }
 }

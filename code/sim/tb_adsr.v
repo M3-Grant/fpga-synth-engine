@@ -22,7 +22,7 @@ module tb_adsr;
     localparam DEC_STEP   = 8'd4;
     localparam REL_STEP   = 8'd4;
 
-    reg                  clk, rst_n, note_on, gate;
+    reg                  clk, rst_n, note_on, gate, trig;
     wire [ENV_BITS-1:0]  env;
 
     integer errors;
@@ -62,6 +62,7 @@ module tb_adsr;
         .clk       (clk),
         .rst_n     (rst_n),
         .sample_en (sample_en),
+        .trig      (trig),
         .note_on   (note_on),
         .gate      (gate),
         .env       (env)
@@ -92,6 +93,7 @@ module tb_adsr;
         rst_n   = 1'b0;
         note_on = 1'b0;
         gate    = 1'b0;
+        trig    = 1'b0;
 
         #(CLK_PERIOD * 20);
         rst_n = 1'b1;
@@ -112,7 +114,8 @@ module tb_adsr;
 
         // ===== 检查2：ATTACK 单调递增 =====
         $display("[检查2] 按下 → ATTACK 单调递增");
-        @(negedge clk); note_on = 1'b1; gate = 1'b1;
+        @(negedge clk); note_on = 1'b1; gate = 1'b1; trig = 1'b1;
+        @(negedge clk); trig = 1'b0;
 
         wait_state(3'd1, 500, timeout);       // 等进入 ATTACK
         if (dut.state !== 3'd1) begin

@@ -34,3 +34,6 @@ Thumbs.db
 build/
 # ---- 发布包 zip（走 GitHub Release 附件，不进仓库）----
 *.zip
+
+# ---- piano_engine 的 FFT 验证波形导出（tb_piano_engine.v 生成）----
+piano_dump.txt
