@@ -75,12 +75,17 @@ $suites = [ordered]@{
         out = 'sim_keyscan.out'
         src = @("${R}debounce.v", "${R}key_scan.v", "${S}key_scan.v")
     }
+    'ir_gesture' = @{
+        out = 'sim_ir.out'
+        src = @("${R}debounce.v", "${R}ir_gesture.v", "${S}ir_gesture.v")
+    }
     'synth_board12' = @{
         out = 'sim_board12.out'
         src = @("${R}clk_div.v", "${R}debounce.v", "${R}key_scan.v", "${R}i2s_tx.v",
                 "${R}note_table.v", "${R}adsr.v", "${R}osc_voice.v",
                 "${R}oscillator_array.v", "${R}note_alloc.v", "${R}mix_tree.v",
-                "${R}piano_engine.v", "${R}synth_top.v", "${R}synth_board12_top.v",
+                "${R}piano_engine.v", "${R}synth_top.v", "${R}ir_gesture.v",
+                "${R}synth_board12_top.v",
                 "${S}synth_board12.v")
     }
     'key12_notes' = @{

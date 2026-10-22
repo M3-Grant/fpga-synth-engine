@@ -34,10 +34,14 @@ module synth_board12_top #(
     parameter NOTE_BITS  = 5,
     parameter BCK_HALF   = 4,
     parameter KEY_NUM    = 12,
-    parameter KEY_CNT_MAX= 270_000     // 消抖 10ms
+    parameter KEY_CNT_MAX= 270_000,    // 消抖 10ms
+    parameter IR_DEBOUNCE_CNT  = 540_000,   // 红外消抖 20ms
+    parameter IR_MIN_SWIPE_CNT = 2_160_000, // 挥手最短 80ms（低于此判为误触）
+    parameter IR_MAX_SWIPE_CNT = 32_400_000 // 挥手最长 1200ms（高于此判为遮挡）
 )(
     input  wire               clk,        // 27 MHz，引脚 4
     input  wire [KEY_NUM-1:0] key,        // 12 路按键输入
+    input  wire               ir_in,      // 红外避障模块（低 = 有手），引脚 74
     output wire               i2s_bck,    // 引脚 56
     output wire               i2s_lrck,   // 引脚 55
     output wire               i2s_din,    // 引脚 54
@@ -81,7 +85,35 @@ module synth_board12_top #(
     );
 
     // ==================================================================
-    // 3. 复音合成器
+    // 3. 红外手势 → 音色切换（演奏第二维度）
+    //    一次有效挥手换一个音色：0 三角 → 1 方波 → 2 锯齿 → 3 脉冲 → 4 钢琴
+    //    与 12 键负责的"音高"维度互相独立，满足赛题"≥2 个可控演奏维度"
+    // ==================================================================
+    wire [2:0] wave_sel;
+    wire       ir_gesture_valid;
+    wire       ir_hand;
+    wire       ir_tooshort;
+    wire       ir_toolong;
+
+    ir_gesture #(
+        .DEBOUNCE_CNT  (IR_DEBOUNCE_CNT),
+        .MIN_SWIPE_CNT (IR_MIN_SWIPE_CNT),
+        .MAX_SWIPE_CNT (IR_MAX_SWIPE_CNT),
+        .INIT_SEL      (3'b100),         // 复位默认：钢琴
+        .N_COLORS      (5)
+    ) u_ir (
+        .clk           (clk),
+        .rst_n         (rst_n),
+        .ir_in         (ir_in),
+        .wave_sel      (wave_sel),
+        .gesture_valid (ir_gesture_valid),
+        .hand_level    (ir_hand),
+        .swipe_tooshort(ir_tooshort),
+        .swipe_toolong (ir_toolong)
+    );
+
+    // ==================================================================
+    // 4. 复音合成器
     // ==================================================================
     wire [VOICE_NUM-1:0] dbg_voice_busy;
     wire signed [15:0]   dbg_mix;
@@ -103,7 +135,7 @@ module synth_board12_top #(
         .note_valid     (note_valid),
         .note_on        (note_on),
         .note_idx       (note_idx),
-        .wave_sel       (3'b100),       // 钢琴音色（谐波合成 + 钢琴衰减包络）
+        .wave_sel       (wave_sel),     // 由红外挥手切换（原为固定 100 钢琴）
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),
         .i2s_din        (i2s_din),
@@ -153,7 +185,8 @@ module synth_board12_top #(
 
     // 1 = 点亮（any_busy 已在第 4 节定义）
     wire [5:0] led_on = {
-        3'b000,          // [5:3] 预留
+        2'b00,           // [5:4] 预留
+        ir_hand,         // [3]   红外检测到手（挥手时可看到亮）
         evt_stretch,     // [2]   事件指示
         any_busy,        // [1]   正在发声
         blink[23]        // [0]   心跳

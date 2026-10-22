@@ -53,7 +53,8 @@ $targets = @{
         Top = 'synth_board12_top'
         Rtl = @('clk_div.v', 'debounce.v', 'key_scan.v', 'i2s_tx.v', 'note_table.v',
                 'adsr.v', 'osc_voice.v', 'oscillator_array.v', 'note_alloc.v',
-                'mix_tree.v', 'piano_engine.v', 'synth_top.v', 'synth_board12_top.v')
+                'mix_tree.v', 'piano_engine.v', 'synth_top.v', 'ir_gesture.v',
+                'synth_board12_top.v')
         Cst = 'synth_board12.cst'
     }
     'synth_board' = @{

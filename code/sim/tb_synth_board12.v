@@ -21,6 +21,7 @@ module tb_synth_board12;
 
     reg                    clk, rst_n;
     reg  [KEY_NUM-1:0]     key;
+    reg                    ir_in;
     wire                   i2s_bck, i2s_lrck, i2s_din, pa_en;
     wire [5:0]             led;
 
@@ -32,10 +33,14 @@ module tb_synth_board12;
         .NOTE_BITS   (5),
         .BCK_HALF    (4),
         .KEY_NUM     (KEY_NUM),
-        .KEY_CNT_MAX (CNT_MAX)
+        .KEY_CNT_MAX (CNT_MAX),
+        .IR_DEBOUNCE_CNT  (8),        // 仿真缩短：红外消抖 8 clk
+        .IR_MIN_SWIPE_CNT (40),       // 挥手最短窗口 40 clk
+        .IR_MAX_SWIPE_CNT (4000)      // 挥手最长窗口 4000 clk
     ) dut (
         .clk      (clk),
         .key      (key),
+        .ir_in    (ir_in),
         .i2s_bck  (i2s_bck),
         .i2s_lrck (i2s_lrck),
         .i2s_din  (i2s_din),
@@ -101,6 +106,7 @@ module tb_synth_board12;
         clk    = 1'b0;
         rst_n  = 1'b0;
         key    = {KEY_NUM{1'b0}};
+        ir_in  = 1'b1;              // 无手（红外避障模块空闲时输出高电平）
         req_d  = 1'b0;
 
         // 等上电复位完成（2^16 周期）
@@ -176,6 +182,30 @@ module tb_synth_board12;
             chk("BCK 正常翻转", toggles > 1000);
         end
         chk("pa_en 已拉高", pa_en === 1'b1);
+
+        // ============ 检查6：红外挥手 → 切换音色 ============
+        // 缩写参数下：消抖 8 clk，有效窗口 40~4000 clk
+        $display("[检查6] 红外挥手切换音色（第二演奏维度）");
+        chk("挥手前 wave_sel = 钢琴(4)", dut.wave_sel == 3'b100);
+
+        @(negedge clk); ir_in = 1'b0;      // 手出现
+        run_clks(200);                     // 停留 200 clk（在窗口内）
+        @(negedge clk); ir_in = 1'b1;      // 手离开
+        run_clks(200);
+        chk("挥手后 wave_sel = 三角(0)", dut.wave_sel == 3'b000);
+
+        @(negedge clk); ir_in = 1'b0;
+        run_clks(200);
+        @(negedge clk); ir_in = 1'b1;
+        run_clks(200);
+        chk("再挥手 → 方波(1)", dut.wave_sel == 3'b001);
+
+        // 过短挥手（< 40 clk）应被拒，档位不动
+        @(negedge clk); ir_in = 1'b0;
+        run_clks(10);
+        @(negedge clk); ir_in = 1'b1;
+        run_clks(200);
+        chk("过短挥手被拒，仍为方波(1)", dut.wave_sel == 3'b001);
 
         $display("==================================================");
         if (errors == 0) $display("  全部通过：0 个错误");

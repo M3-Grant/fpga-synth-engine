@@ -4,8 +4,9 @@
 > 《基于 FPGA 的实时多音色合成电子乐器引擎》
 > 平台：高云 **GW2AR-LV18QN88C8/I7**（Sipeed Tang Nano 20K，27 MHz）
 
-**当前状态：`beta.3-candidate`（2026-10-18）—— 12 键可演奏电子琴，默认音色为"钢琴"
-（6 次谐波加法合成 + 钢琴式衰减包络），11 套仿真全部通过，综合 0 Error。**
+**当前状态：`beta.4-candidate`（2026-10-22）—— 12 键可演奏电子琴（音高维度）
++ 红外挥手切换音色（第二演奏维度），默认音色为"钢琴"
+（6 次谐波加法合成 + 钢琴式衰减包络），综合 0 Error。**
 上一稳定版：`beta.2.1`（三角波，已上板出声）。
 提交截止：**2026-11-04 18:00**
 
@@ -16,17 +17,17 @@
 | 我想… | 怎么做 |
 |---|---|
 | **听声音** | `cd code\synth` → `.\build.ps1 -Target synth_board12 -Program sram`（⚠️ 会发声） |
-| **确认代码没错** | `cd code` → `powershell -ExecutionPolicy Bypass -File .\run_sim_all.ps1`，期望 `ALL SIMULATIONS PASSED (11 suites)` |
+| **确认代码没错** | `cd code` → `powershell -ExecutionPolicy Bypass -File .\run_sim_all.ps1`，期望 `ALL SIMULATIONS PASSED (12 suites)` |
 | **看音色对不对** | 先跑 `piano_engine` 仿真导出波形，再 `C:\Python314\python.exe tools\verify_piano.py` 做 FFT |
 | **读代码** | 从 `code/rtl/synth_board12_top.v` 开始：`synth_top` → `piano_engine`（钢琴）或 `osc_voice`（老波形） |
-| **看文档** | `00-先看我.md`（总入口）、`docs/16-钢琴音色迭代.md`（本次） |
+| **看文档** | `00-先看我.md`（总入口）、`docs/16-钢琴音色迭代.md`、`docs/17-红外手势最小系统.md`（本次） |
 
 ---
 
 ## 系统结构（两条音色通路）
 
 ```
-                     ┌────────── 交互层（目前只有 1 维：12 键触摸）──────────┐
+                     ┌── 交互层（2 维：12 键定音高 / 红外挥手定音色）──────┐
   12× TTP223 ──► debounce ──► key_scan ──► 音符事件(note_valid / note_on / idx)
                      └──────────────────────────┬────────────────────────────┘
                                                 ▼
@@ -56,6 +57,7 @@
 - **复音数**：`VOICE_NUM = 4`（改一个参数即可扩到 8/16）
 - **音域**：C4~C6，25 个半音；`synth_board12_top` 用前 12 个（C4~B4 完整八度，含半音）
 - **音色**（`wave_sel[2:0]`）：`000` 三角 / `001` 方波 / `010` 锯齿 / `011` 脉冲 25% / **`100` 钢琴（默认）**
+  运行时由**红外挥手**逐档切换（`ir_gesture.v`，复位后从钢琴开始）
 - **钢琴音色**：每声部 6 个谐波振荡器，权重 1/h^1.5；每个谐波独立指数衰减，
   高次谐波衰减快 4~8 倍 → 音色"敲下去亮、随后变暗"；**没有 sustain**
 - **`pa_en`**：有音符才开功放，静音 155 ms 后自动关（降 MAX98357A 发热）
