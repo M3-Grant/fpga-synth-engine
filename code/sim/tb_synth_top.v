@@ -169,7 +169,7 @@ module tb_synth_top;
 
         // 加入 ADSR 后，SUSTAIN 电平为 160/255，单音幅度约
         //   8192(AMP) × 160/255 / 4(右移2位) ≈ 1280
-        if (max_abs > 500 && max_abs < 1800)
+        if (max_abs > 2000 && max_abs < 7200)
             $display("  [PASS] 单音幅度合理（%0d，期望约 1280）", max_abs);
         else begin
             $display("  [FAIL] 单音幅度异常（%0d，期望约 1280）", max_abs);

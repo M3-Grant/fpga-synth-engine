@@ -185,7 +185,7 @@ module tb_piano_engine;
         dumping  = 1'b0;
 
         $display("        单音峰值 = %0d  (导出 %0d 个样本)", peak_cur, dumped);
-        chk("有音频输出（峰值 > 2000）", peak_cur > 16'sd2000);
+        chk("有音频输出（峰值 > 4000）", peak_cur > 16'sd4000);
         chk("未削波（峰值 ≤ 32767）",     peak_cur <= 16'sd32767);
         chk("峰值没有顶到饱和区（≤ 30000）", peak_cur <= 16'sd30000);
 
@@ -224,7 +224,7 @@ module tb_piano_engine;
         peak_cur = 16'sd0;
         run_samples(6000);
         $display("        和弦峰值 = %0d", peak_cur);
-        chk("和弦有输出（峰值 > 单音）", peak_cur > 16'sd3000);
+        chk("和弦有输出（峰值 > 单音）", peak_cur > 16'sd6000);
         chk("和弦未削波（峰值 ≤ 32767）", peak_cur <= 16'sd32767);
 
         // ============ 检查6：重复触发（同一个音再敲一次）============
