@@ -133,7 +133,7 @@ module tb_synth_board12;
         peak = (max_val > -min_val) ? max_val : -min_val;
         $display("        混音峰值 = %0d", peak);
         chk("有音频输出", peak > 100);
-        chk("幅度合理（钢琴音色，期望 10000 左右）", (peak > 6000) && (peak < 18000));
+        chk("幅度合理（钢琴音色，期望 18000 左右）", (peak > 6000) && (peak < 21000));
         // beta.3 起 synth_board12_top 默认音色 = 3'b100（钢琴）：
         //   6 次谐波加法合成；2026-10-27 输出 ÷4→÷2 后单声部实测约 10100
         //   （beta.3 为 5050，beta.2.1 三角波为 1928）

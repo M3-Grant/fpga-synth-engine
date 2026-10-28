@@ -4,11 +4,13 @@
 > 《基于 FPGA 的实时多音色合成电子乐器引擎》
 > 平台：高云 **GW2AR-LV18QN88C8/I7**（Sipeed Tang Nano 20K，27 MHz）
 
-**当前状态：`beta.4-candidate`（2026-10-22）—— 12 键可演奏电子琴（音高维度）
-+ 红外挥手切换音色（第二演奏维度），默认音色为"钢琴"
-（6 次谐波加法合成 + 钢琴式衰减包络），综合 0 Error。**
-上一稳定版：`beta.2.1`（三角波，已上板出声）。
-提交截止：**2026-11-04 18:00**
+**当前状态：`beta.5`（2026-10-28）**
+
+- **两个独立演奏维度**：12 键选音高 + 红外挥手切音色
+- **默认音色为钢琴**：6 次谐波加法合成，每个谐波独立指数衰减（音色由亮变暗）
+- **24 个可综合模块 / 14 套回归测试**，仿真与综合全部通过
+- **触摸输入支持两代硬件**：12 个 TTP223（并行 12 线）或 1 块 TTP229 钢琴模块（2 线串行）
+- 提交截止：**2026-11-04 18:00**
 
 ---
 
@@ -16,71 +18,80 @@
 
 | 我想… | 怎么做 |
 |---|---|
-| **听声音** | `cd code\synth` → `.\build.ps1 -Target synth_board12 -Program sram`（⚠️ 会发声） |
-| **确认代码没错** | `cd code` → `powershell -ExecutionPolicy Bypass -File .\run_sim_all.ps1`，期望 `ALL SIMULATIONS PASSED (12 suites)` |
-| **看音色对不对** | 先跑 `piano_engine` 仿真导出波形，再 `C:\Python314\python.exe tools\verify_piano.py` 做 FFT |
-| **读代码** | 从 `code/rtl/synth_board12_top.v` 开始：`synth_top` → `piano_engine`（钢琴）或 `osc_voice`（老波形） |
-| **看文档** | `00-先看我.md`（总入口）、`docs/16-钢琴音色迭代.md`、`docs/17-红外手势最小系统.md`（本次） |
+| **确认代码没错** | `cd code` → `powershell -ExecutionPolicy Bypass -File .\run_sim_all.ps1`，期望 `ALL SIMULATIONS PASSED (14 suites)` |
+| **听声音（零接线）** | `cd code\synth` → `.\build.ps1 -Target self_test_12notes -Program sram`，自动循环钢琴十二音 |
+| **跑完整整机** | `.\build.ps1 -Target synth_board12 -Program sram`（12×TTP223）或 `-Target synth_ttp229 -Program sram`（TTP229） |
+| **读代码** | `code/rtl/synth_board12_top.v` → `synth_top` → `piano_engine` / `osc_voice` |
 
 ---
 
-## 系统结构（两条音色通路）
+## 系统结构
 
 ```
-                     ┌── 交互层（2 维：12 键定音高 / 红外挥手定音色）──────┐
-  12× TTP223 ──► debounce ──► key_scan ──► 音符事件(note_valid / note_on / idx)
-                     └──────────────────────────┬────────────────────────────┘
-                                                ▼
-                                           note_alloc  (4 声部分配)
-                                                │
-                     ┌──────────────────────────┴───────────────────────────┐
-                     ▼                                                      ▼
-              piano_engine                                          oscillator_array ×4
-        （6 次谐波加法合成 + 钢琴衰减包络）                          （三角/方波/锯齿/脉冲）
-                     │                                                      │
-                     │                                                  adsr ×4
-                     │                                                      │
-                     │                                                  mix_tree
-                     ▼                                                      ▼
-              piano_audio                                          mix_out[17:2]
-                     └──────────────────────┬───────────────────────────────┘
-                                            ▼   wave_sel == 3'b100 ? 钢琴 : 老通路
-                                        audio_out
-                                            │
-                                       i2s_tx（标准 Philips I2S）
-                                            │
-                                   MAX98357A（板载 DAC + 功放）
-                                            │
-                                  SPK+ / SPK− 焊盘 → 喇叭
+   ┌─ 维度 1：音高 ──────────────────────────────────────────────┐
+   │  12× TTP223（并行）─────┐                                   │
+   │                         ├──► key_scan ──► 音符事件           │
+   │  1× TTP229（2 线串行）──┘   (ttp229_scan 先解串)             │
+   └───────────────────────────────┬──────────────────────────────┘
+                                   ▼
+                              note_alloc（4 声部分配）
+                                   │
+        ┌──────────────────────────┴──────────────────────────┐
+        ▼                                                     ▼
+   piano_engine                                        oscillator_array ×4
+（6 谐波加法合成 + 衰减包络）                          （三角/方波/锯齿/脉冲）
+        │                                                     │
+        │                                                 adsr ×4
+        │                                                     │
+        │                                                 mix_tree
+        ▼                                                     ▼
+   piano_audio                                          mix_out[15:0]
+        └──────────────────────┬──────────────────────────────┘
+                               ▼   wave_sel == 3'b100 ? 钢琴 : 老通路
+                           audio_out ──► i2s_tx ──► PCM5102A / MAX98357A
+                                                          │
+   ┌─ 维度 2：音色 ────────────────┐                    喇叭
+   │  红外避障模块 ──► ir_gesture ──► wave_sel[2:0]（5 档环形）
+   └──────────────────────────────┘
 ```
 
-- **复音数**：`VOICE_NUM = 4`（改一个参数即可扩到 8/16）
-- **音域**：C4~C6，25 个半音；`synth_board12_top` 用前 12 个（C4~B4 完整八度，含半音）
-- **音色**（`wave_sel[2:0]`）：`000` 三角 / `001` 方波 / `010` 锯齿 / `011` 脉冲 25% / **`100` 钢琴（默认）**
-  运行时由**红外挥手**逐档切换（`ir_gesture.v`，复位后从钢琴开始）
-- **钢琴音色**：每声部 6 个谐波振荡器，权重 1/h^1.5；每个谐波独立指数衰减，
-  高次谐波衰减快 4~8 倍 → 音色"敲下去亮、随后变暗"；**没有 sustain**
-- **`pa_en`**：有音符才开功放，静音 155 ms 后自动关（降 MAX98357A 发热）
+- **复音数**：`VOICE_NUM = 4`（改一个参数即可扩）
+- **音域**：C4~C6 共 25 个半音；12 键版用 C4~B4 一个完整八度
+- **音色**（`wave_sel[2:0]`）：`000` 三角 / `001` 方波 / `010` 锯齿 / `011` 脉冲 / **`100` 钢琴（默认）**
+- **钢琴实现**：每声部 6 个谐波振荡器，权重按 1/h^1.5；每谐波独立指数衰减
+  （基波 τ=310 ms、6 次谐波 τ=39 ms）；无 sustain，松键后制音器约 75 ms 归零
+- **红外手势**：手在传感器前停留 80~1200 ms 算一次有效挥手，环形切换 5 档音色
 
 ---
 
-## 构建 + 烧录（命令行，不需要建 Gowin 工程）
+## 构建 + 烧录
 
 ```powershell
 cd code\synth
-.\build.ps1 -Target synth_board12 -Program sram    # sram = 掉电即失，flash = 掉电保持
+.\build.ps1 -Target synth_ttp229 -Program sram
 ```
 
 | 参数 | 可选值 |
 |---|---|
-| `-Target` | `synth_board12`（正式版，钢琴）/ `synth_board`（2 键降级验证，三角波）/ `chord_demo`（零接线自动演示，5 音色轮换）/ `tone_test`（440 Hz 生死线） |
-| `-Program` | `none` 只出码流 / `sram`（operation_index 2）/ `flash`（operation_index 9） |
-| `-GowinHome` | 默认 `D:\Gowin\Gowin_V1.9.11.03_Education_x64`，装在别处要覆盖 |
+| `-Target` | `synth_board12`（12×TTP223 整机）/ `synth_ttp229`（TTP229 整机）/ `self_test_12notes`（零接线钢琴十二音）/ `self_test_square`（零接线方波对照）/ `ttp229_debug`（触摸位映射调试）/ `chord_demo` / `tone_test` / `synth_board` |
+| `-Program` | `none` 只出码流 / `sram`（掉电即失）/ `flash`（掉电保持） |
 
-产物：`build\<Target>\impl\pnr\<Target>.fs`
+> ⚠️ 引脚 **54/55/56 是 SSPI 专用脚**，脚本已固定加 `set_option -use_sspi_as_gpio 1`，少了会报 `ERROR (PR2017)`。
+> ⚠️ `build.ps1` **必须保持纯 ASCII**：PowerShell 5.1 按 ANSI 读取无 BOM 的 `.ps1`，中文注释会破坏语法。
 
-> ⚠️ 引脚 **54/55/56 是 SSPI 专用脚**，脚本已固定加 `set_option -use_sspi_as_gpio 1`，
-> 少了这行布线报 `ERROR (PR2017)`。
+---
+
+## 资源占用
+
+| 配置 | Logic | Register | DSP |
+|---|---|---|---|
+| `synth_board12`（12×TTP223 + 钢琴 + 老波形） | 5950 / 20736（**29%**） | 2105（14%） | 3 / 24 |
+| `synth_ttp229`（TTP229 + 钢琴 + 老波形） | 6035 / 20736（**30%**） | 2162（14%） | 3 / 24 |
+| `self_test_12notes`（单声部钢琴自检） | 1304（7%） | 482（4%） | 1 |
+| `self_test_square`（纯方波对照） | 235（2%） | 128（<1%） | 0 |
+| `ttp229_debug`（触摸位映射调试） | 163（<1%） | — | 0 |
+
+余量充足：BSRAM 完全未用（可做波表 / 混响），Logic 还剩约 70%。
 
 ---
 
@@ -88,19 +99,17 @@ cd code\synth
 
 ```
 fpga-synth-engine/
-├── 00-先看我.md               ← 总入口（模块清单 / 验证结果 / 引脚表 / 踩坑）
-├── prebuilt/                  ← 预编译码流（可直接烧）
+├── 00-先看我.md               ← 总入口（模块清单 / 验证结果 / 引脚 / 踩坑）
+├── prebuilt/                  ← 预编译码流
 ├── code/
-│   ├── rtl/                   ← 18 个可综合 Verilog 模块
-│   ├── sim/                   ← 测试台（11 套回归）
-│   ├── constraints/           ← 4 个引脚约束（.cst）
+│   ├── rtl/                   ← 24 个可综合 Verilog 模块
+│   ├── sim/                   ← 测试台（14 套回归 + 音频导出）
+│   ├── constraints/           ← 引脚约束（12 键版 / TTP229 版 / 调试版 / 旧工程）
 │   ├── synth/build.ps1        ← 命令行综合 + 布线 + 烧录
-│   ├── tools/                 ← gen_fcw.py / verify_piano.py（FFT 谐波验证）/ 频谱分析
+│   ├── tools/                 ← gen_fcw.py / verify_piano.py（FFT 谐波验证）/ txt_to_wav.py
 │   ├── run_sim_all.ps1        ← ✅ 回归入口（真判据：扫描 [FAIL]）
-│   ├── run_sim_all.bat        ← 旧入口，已改为转调 .ps1
-│   ├── synth_demo*.wav        ← 仿真导出的试听音频
-│   └── I2S调试记录.md          ← 踩坑全记录（答辩可用）
-├── docs/                      ← 项目文档（接线 / 排期 / 评审 / 审查报告 / 钢琴音色）
+│   └── I2S调试记录.md          ← 踩坑全记录
+├── docs/                      ← 18 篇项目文档（接线指南、审查报告、音色迭代）
 ├── iterations/                ← 历史迭代快照
 └── tools/                     ← 环境初始化脚本
 ```
@@ -115,54 +124,45 @@ fpga-synth-engine/
 fs = 27 MHz ÷ 8 (BCK_HALF) ÷ 64 (BCK per LRCK) = 52734.375 Hz
 FCW = f × 2^32 ÷ 52734.375
 ```
-
-按 48000 算，A4 440 Hz 会跑成 **483 Hz**，明显跑调。
-`note_table.v` 由 `tools/gen_fcw.py` 生成，**不要手改**，改就重新生成。
+按 48000 算，A4 440 Hz 会跑成 **483 Hz**，明显跑调。`note_table.v` 由 `tools/gen_fcw.py` 生成，不要手改。
 
 ### 2. I2S 必须用标准 Philips 时序
 
 数据在 LRCK 跳变后**延迟 1 个 BCK** 才发 MSB（1 无效位 + 16 数据位 + 15 填充位）。
 左对齐写法会让所有样本左移一位 = 音量翻倍 + 削波失真。
 
-### 3. 喇叭要焊，不能插
+### 3. 喇叭要焊、要带腔体
 
-板载 **MAX98357A**，输出是两个裸焊盘 **SPK+ / SPK−**。
-**BTL 桥接输出，两端都不能接地**，接错会烧芯片。焊前用万用表确认两端开路。
+板载功放输出是 **SPK+ / SPK− 两个裸焊盘**，**BTL 桥接，两端都不能接地**。
+外接喇叭**必须有密封后腔**：裸喇叭的低频会被声短路抵消，而钢琴基波（261 Hz）正好在这个坑里，听起来会像"电子琴"而不是钢琴。
 
 ### 4. 仿真通过 ≠ 综合通过
 
-Gowin 的 `EX3791`（位宽截断）能抓出 iverilog 不报的 bug。
-**每一版都必须跑一次 `build.ps1 -Program none`，确认 0 Error。**
+Gowin 能抓出 iverilog 不报的位宽问题（`EX3791`、`EX3784`）。
+**每一版都必须跑一次 `build.ps1 -Program none` 确认 0 Error。**
 
 ---
 
-## 当前进度
+## 版本演进
 
 | 版本 | 内容 | 状态 |
 |---|---|---|
-| `demo0.0.1` | 单音发声链路（I2S + 波形表） | ✅ |
-| `demo0.0.2` | 复音架构（VOICE_NUM=4）+ ADSR | ✅ |
+| `demo0.0.1` / `demo0.0.2` | 单音发声链路 → 复音架构 + ADSR | ✅ |
 | `beta.1` / `beta.1.01` | 12 键可演奏电子琴 + 编译修复 | ✅ |
 | `beta.2` | 三角波、4 波形切换、功放门控、按键丢音修复、首次上板出声 | ✅ |
-| `beta.2.1` | 音量 +6 dB（AMP 3/16 → 3/8） | ✅ 已上板 |
-| `beta.3-candidate` | **钢琴音色**：6 谐波加法合成 + 每谐波独立衰减，`adsr` 抢占音头修复 | ✅ 仿真+综合通过，**待上板试听** |
+| `beta.2.1` | 音量 +6 dB（AMP 3/16 → 3/8） | ✅ |
+| `beta.3` | 钢琴音色：6 次谐波加法合成 + 每谐波独立衰减 | ✅ |
+| `beta.4` | 红外手势切音色（第二演奏维度） | ✅ |
+| **`beta.5`** | TTP229 2 线串行触摸输入、零接线自检固件、`piano_engine` 单声部扫描修复、音量标定 | ✅ |
 
-| 资源 | beta.2.1（三角波） | beta.3（钢琴） |
-|---|---|---|
-| Logic | 2061 / 20736（10%） | **5066 / 20736（25%）** |
-| Register | 841 / 15750（6%） | **1782 / 15750（12%）** |
-| DSP | 2 / 24 | **1 / 24** |
-| BSRAM | 0 | 0（正弦用 LUT 表，未占 BSRAM） |
+---
 
-> 钢琴版把老通路（osc_voice / adsr / mix_tree）优化掉了 —— 因为 `synth_board12_top`
-> 把 `wave_sel` 固定成 `3'b100`，综合器判定另一分支是死代码（10 条 `NL0002` 警告即此）。
-> 第二交互维度接入、`wave_sel` 变成动态信号后，老通路会重新被综合进来，预计约 6500 LUT（31%）。
+## 下一步
 
-### 下一步（最大缺口）
-
-**第二交互维度尚未实现** —— 比赛硬性要求 ≥2 个独立可控演奏维度，目前只有"12 键触摸演奏"这一维。
-`synth_top` 的 `wave_sel[2:0]` 已扩宽并预留，等 `gesture_ctrl` 接上：
-红外避障模块 → 手势切音色 / 力度（映射到钢琴谐波权重）。接线方案见 `docs/08-交互硬件接线.md`。
+1. **硬件迭代**：PCM5102A + PAM8403 独立音频链路（详见 `docs/18-新硬件接线指南.md`）
+2. **TTP229 位映射实测**：烧 `ttp229_debug`，逐键读出位号，填入 `synth_ttp229_top.v` 的 `TTP_BIT()` 表
+3. 喇叭换 4 Ω 全频 + 密封腔体
+4. 钢琴音色进阶：非谐性（inharmonicity）、同音多弦失谐、力度分层
 
 ---
 
@@ -172,5 +172,5 @@ Gowin 的 `EX3791`（位宽截断）能抓出 iverilog 不报的 bug。
 |---|---|
 | **所有文件 UTF-8 无 BOM** | `.v` 带 BOM 会让 iverilog 报 `No top level modules` |
 | **`.gitattributes` = `* -text`** | 禁止 Git 自动转换换行符 |
-| **`.bat` 保持 CRLF** | Windows cmd.exe 要求 |
-| **其余文件保持原始字节** | 源码同时喂 iverilog 和 Gowin，任何自动改写都可能引入难查问题 |
+| **`.bat` / `.ps1` 保持纯 ASCII** | cmd / PowerShell 5.1 按系统 ANSI 代码页读取，中文会破坏语法 |
+| **其余文件保持原始字节** | 源码同时喂 iverilog 和 Gowin |

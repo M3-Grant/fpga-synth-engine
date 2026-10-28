@@ -96,6 +96,18 @@ $suites = [ordered]@{
         out = 'sim_piano.out'
         src = @("${R}piano_engine.v", "${S}piano_engine.v")
     }
+    'ttp229' = @{
+        out = 'sim_ttp.out'
+        src = @("${R}ttp229_scan.v", "${S}ttp229.v")
+    }
+    'synth_ttp229' = @{
+        out = 'sim_synthttp.out'
+        src = @("${R}clk_div.v", "${R}debounce.v", "${R}key_scan.v", "${R}ir_gesture.v",
+                "${R}i2s_tx.v", "${R}note_table.v", "${R}adsr.v", "${R}osc_voice.v",
+                "${R}oscillator_array.v", "${R}note_alloc.v", "${R}mix_tree.v",
+                "${R}piano_engine.v", "${R}synth_top.v", "${R}ttp229_scan.v",
+                "${R}synth_ttp229_top.v", "${S}synth_ttp229.v")
+    }
 }
 
 $failed  = @()
