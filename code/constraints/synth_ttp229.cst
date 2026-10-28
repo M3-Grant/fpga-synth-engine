@@ -1,0 +1,76 @@
+// ============================================================================
+//  文件名  : synth_ttp229.cst
+//  功能    : TTP229 版 12 键电子琴的引脚约束
+//  板卡    : Sipeed Tang Nano 20K (GW2AR-18)
+//
+//  ── 与 synth_board12.cst 的区别 ──────────────────────────────────
+//  原来 12 个 TTP223 各占一个 IO（27/28/29/30/31/26/41/42/48/77/79/25）；
+//  换成 TTP229 后只需 2 根线，这 12 个脚全部释放（可作他用）。
+//
+//  ── 新增/变化 ────────────────────────────────────────────────────
+//      74 : ir_in   红外避障模块（不变）
+//      75 : ttp_scl → TTP229 读时钟（本模块输出）
+//      76 : ttp_sdo ← TTP229 数据位（本模块输入，上拉）
+//
+//  ── TTP229 接线 ──────────────────────────────────────────────────
+//      VCC → 3V3（**必须 3.3V**，5V 会让 SDO 输出 5V 打坏 IO）
+//      GND → GND
+//      SCL → 75
+//      SDO → 76
+//      RGB → 悬空
+// ============================================================================
+
+// ---- 板载 27MHz 时钟 ----
+IO_LOC "clk" 4;
+IO_PORT "clk" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+
+// ====================================================================
+// 红外避障模块（挥手切换音色，第二演奏维度）
+// ====================================================================
+IO_LOC "ir_in" 74;
+IO_PORT "ir_in" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+
+// ====================================================================
+// TTP229 触摸模块（12 键钢琴，2 线串行）
+// ====================================================================
+IO_LOC "ttp_scl" 75;
+IO_PORT "ttp_scl" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+IO_LOC "ttp_sdo" 76;
+IO_PORT "ttp_sdo" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+
+// ====================================================================
+// I2S 输出 → PCM5102A（新链路）或板载 MAX98357A（旧链路）
+// ====================================================================
+IO_LOC "i2s_din" 54;
+IO_PORT "i2s_din" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+IO_LOC "i2s_lrck" 55;
+IO_PORT "i2s_lrck" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+IO_LOC "i2s_bck" 56;
+IO_PORT "i2s_bck" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+IO_LOC "pa_en" 51;
+IO_PORT "pa_en" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+// ====================================================================
+// 板载 6 颗 LED（低电平点亮）
+// ====================================================================
+IO_LOC "led[0]" 15;
+IO_PORT "led[0]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+IO_LOC "led[1]" 16;
+IO_PORT "led[1]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+IO_LOC "led[2]" 17;
+IO_PORT "led[2]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+IO_LOC "led[3]" 18;
+IO_PORT "led[3]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+IO_LOC "led[4]" 19;
+IO_PORT "led[4]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+IO_LOC "led[5]" 20;
+IO_PORT "led[5]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;

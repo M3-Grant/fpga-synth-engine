@@ -198,17 +198,25 @@ module piano_engine #(
     endfunction
 
     // ------------------------------------------------------------------
-    // 4. 串行扫描：st 0..27
-    //    st 0..23  : 取第 st 路的相位/包络，算正弦（组合）
-    //    st 24..25 : 流水排空
-    //    st 26     : 输出饱和
+    // 4. 串行扫描：st 0 .. TOTAL+2
+    //    st 0..TOTAL-1 : 取第 st 路的相位/包络，算正弦（组合）
+    //    st TOTAL..TOTAL+1 : 流水排空
+    //    st TOTAL+2        : 输出饱和
+    //    ⚠ 2026-10-27 修正：原来把 24（4 声部×6 谐波）写死了。
+    //      VOICE_NUM=1 时 TOTAL=6，若仍按 st 2..25 累加，
+    //      第 6..23 拍会重复读 phase[0] 并累加 → 基波被算 21 次。
+    //      改为随 TOTAL 伸缩的常量，4 声部时数值与原来完全一致。
     // ------------------------------------------------------------------
+    localparam [4:0] ST_END  = TOTAL + 3;      // 扫描结束值（含）
+    localparam [4:0] ST_ACCL = TOTAL + 1;      // 最后一个累加拍
+    localparam [4:0] ST_OUT  = TOTAL + 2;      // 输出拍
+
     reg [4:0] st;
 
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n)     st <= 5'd0;
+        if (!rst_n)          st <= 5'd0;
         else if (sample_req) st <= 5'd0;
-        else if (st < 5'd27) st <= st + 5'd1;
+        else if (st < ST_END) st <= st + 5'd1;
     end
 
     wire [4:0] st_idx = (st < TOTAL) ? st : 5'd0;      // 排除越界读
@@ -248,7 +256,7 @@ module piano_engine #(
             // stage 2：电平乘包络（16×17 → 综合到 DSP）
             prod <= s_d * $signed({1'b0, e_d});
             // stage 3：累加（st 2..25 恰好覆盖 24 路）
-            if ((st >= 5'd2) && (st <= 5'd25))
+            if ((st >= 5'd2) && (st <= ST_ACCL))
                 acc <= acc + {{8{prod[31]}}, prod[31:16]};
         end
     end
@@ -267,7 +275,7 @@ module piano_engine #(
         if (!rst_n) begin
             audio <= 16'sd0;
         end
-        else if (st == 5'd26) begin
+        else if (st == ST_OUT) begin
             if (mix > 24'sd32767)
                 audio <= 16'sd32767;
             else if (mix < -24'sd32768)

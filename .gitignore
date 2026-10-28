@@ -37,3 +37,8 @@ build/
 
 # ---- piano_engine 的 FFT 验证波形导出（tb_piano_engine.v 生成）----
 piano_dump.txt
+# ---- audio dump / wav produced by self-test benches ----
+piano_2s*.txt
+piano_2s*.wav
+self12_dump.txt
+self12_*.wav
