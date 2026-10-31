@@ -74,3 +74,19 @@ IO_PORT "led[4]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
 
 IO_LOC "led[5]" 20;
 IO_PORT "led[5]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+// ====================================================================
+// 串口帧输出（给上位机 synth_viz.py）—— 5 个候选脚，接一个即可
+// ====================================================================
+IO_LOC "uart_tx[0]" 48;
+IO_PORT "uart_tx[0]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "uart_tx[1]" 69;
+IO_PORT "uart_tx[1]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "uart_tx[2]" 42;
+IO_PORT "uart_tx[2]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "uart_tx[3]" 77;
+IO_PORT "uart_tx[3]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+IO_LOC "uart_tx[4]" 79;
+IO_PORT "uart_tx[4]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+// ---- 串口接收（USB-TTL 的 TXD → 引脚 27，排针上可接）----
+IO_LOC "uart_rx_i" 27;
+IO_PORT "uart_rx_i" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;

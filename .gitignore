@@ -42,3 +42,6 @@ piano_2s*.txt
 piano_2s*.wav
 self12_dump.txt
 self12_*.wav
+
+# ---- 实验/一次性验证代码，不进正式版 ----
+experiments/

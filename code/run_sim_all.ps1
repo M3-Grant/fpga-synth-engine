@@ -18,13 +18,27 @@
 
 $ErrorActionPreference = 'Continue'
 
-# ---------- locate iverilog ----------
-$IV = 'D:\Tools\iverilog\bin'
-if (-not (Test-Path "$IV\iverilog.exe")) { $IV = 'C:\iverilog\bin' }
-if (-not (Test-Path "$IV\iverilog.exe")) {
+# ---------- locate iverilog (auto-detect; no hard-coded machine paths) ----------
+$IV = $null
+$ivCands = @()
+if ($env:IVERILOG_HOME) { $ivCands += $env:IVERILOG_HOME }
+$ivCands += @(
+    'C:\iverilog\bin',
+    'D:\iverilog\bin',
+    'D:\Tools\iverilog\bin',
+    "$env:ProgramFiles\iverilog\bin",
+    "${env:ProgramFiles(x86)}\iverilog\bin"
+)
+foreach ($c in $ivCands) {
+    if ($c -and (Test-Path (Join-Path $c 'iverilog.exe'))) { $IV = $c; break }
+}
+if (-not $IV) {
+    $cmd = Get-Command iverilog.exe -ErrorAction SilentlyContinue
+    if ($cmd) { $IV = Split-Path -Parent $cmd.Source }
+}
+if (-not $IV) {
     Write-Host "[ERROR] iverilog.exe not found."
-    Write-Host "        checked: D:\Tools\iverilog\bin"
-    Write-Host "        checked: C:\iverilog\bin"
+    Write-Host "        Set IVERILOG_HOME (folder containing iverilog.exe) or add iverilog to PATH."
     exit 1
 }
 

@@ -43,7 +43,10 @@ module ttp229_debug (
     end
 
     // ---- TTP229 读出 ----
-    wire [15:0] keys;
+    // ⚠ 2026-10-31：Qhebot 12 键钢琴板实测 TTP229 输出为低有效（0 = 按下），
+    //    这里取反再送显示，否则未按时会显示"12 键全按"。
+    wire [15:0] keys_raw;
+    wire [15:0] keys = ~keys_raw;
     wire        keys_valid;
 
     ttp229_scan #(
@@ -57,7 +60,7 @@ module ttp229_debug (
         .rst_n     (rst_n),
         .sdo       (ttp_sdo),
         .scl       (ttp_scl),
-        .key_state (keys),
+        .key_state (keys_raw),
         .key_valid (keys_valid)
     );
 

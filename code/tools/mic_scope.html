@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>麦克风频谱示波器（无 AGC）</title>
+<style>
+  body { margin:0; background:#111; color:#ddd; font-family:Consolas,monospace; }
+  header { padding:10px 14px; background:#1b1b1b; border-bottom:1px solid #333; }
+  h1 { font-size:15px; margin:0 0 6px; color:#8cf; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; font-size:13px; }
+  button { background:#2a5; color:#fff; border:0; padding:7px 14px; border-radius:4px; cursor:pointer; font-size:13px; }
+  button:disabled { background:#555; cursor:default; }
+  button.stop { background:#a33; }
+  .stat { font-size:13px; color:#bbb; }
+  .big { font-size:26px; color:#7f7; font-weight:bold; }
+  canvas { display:block; width:100%; background:#000; }
+  #wrap { padding:10px 14px; }
+  .hint { color:#777; font-size:12px; line-height:1.6; }
+  table { border-collapse:collapse; font-size:12px; margin-top:8px; }
+  td,th { border:1px solid #333; padding:3px 10px; text-align:right; }
+  th { background:#1b1b1b; color:#8cf; }
+</style>
+</head>
+<body>
+<header>
+  <h1>麦克风频谱示波器 · AGC/降噪已强制关闭</h1>
+  <div class="row">
+    <button id="btn">开始测量</button>
+    <button id="dl" disabled class="stop">下载最近 5 秒 WAV</button>
+    <span class="stat">采样率 <span id="sr">-</span></span>
+    <span class="stat">峰值频率 <span id="pf" class="big">-</span></span>
+    <span class="stat">峰值电平 <span id="pl">-</span></span>
+  </div>
+</header>
+
+<div id="wrap">
+  <canvas id="spec" width="1200" height="360"></canvas>
+  <canvas id="wave" width="1200" height="200" style="margin-top:8px"></canvas>
+  <div class="hint">
+    说明：<br>
+    · 采样时已设置 <code>autoGainControl:false, noiseSuppression:false, echoCancellation:false</code>，
+      所以电平变化会如实反映（手机的示波器 App 通常默认开 AGC，会把音量变化补回来，看起来"没变化"）。<br>
+    · 把电脑麦克风靠近喇叭 10~15 cm，点"开始测量"，保持 5 秒以上。<br>
+    · 频谱横轴是 0~24 kHz（对数刻度），纵轴 dBFS；顶部表格列出最强 8 个峰。<br>
+    · 测完可下载 WAV 交给分析脚本。
+  </div>
+  <table id="pk"><thead><tr><th>#</th><th>频率 (Hz)</th><th>电平 (dBFS)</th></tr></thead><tbody></tbody></table>
+</div>
+
+<script>
+let ac = null, analyser = null, stream = null, running = false;
+let bufL = null, bufR = null, recL = [], recR = [], recMax = 0;
+const spec = document.getElementById('spec').getContext('2d');
+const wav  = document.getElementById('wave').getContext('2d');
+const btn  = document.getElementById('btn');
+const dl   = document.getElementById('dl');
+
+const FFT = 8192;
+
+btn.onclick = async () => {
+  if (running) { stop(); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        autoGainControl: false,   // 关键：关闭自动增益
+        noiseSuppression: false,  // 关键：关闭降噪
+        echoCancellation: false,  // 关键：关闭回声消除
+        channelCount: 1,
+        sampleRate: 48000
+      },
+      video: false
+    });
+  } catch (e) {
+    alert('无法获取麦克风：' + e.message + '\n请确认已授权，且页面通过 http://localhost 打开');
+    return;
+  }
+  ac = new (window.AudioContext || window.webkitAudioContext)();
+  document.getElementById('sr').textContent = ac.sampleRate + ' Hz';
+  const src = ac.createMediaStreamSource(stream);
+  analyser = ac.createAnalyser();
+  analyser.fftSize = FFT;
+  analyser.smoothingTimeConstant = 0.3;
+  src.connect(analyser);
+
+  bufL = new Float32Array(Math.max(...[analyser.frequencyBinCount]));
+  running = true;
+  btn.textContent = '停止';
+  btn.className = 'stop';
+  dl.disabled = true;
+  recL = []; recMax = 0;
+
+  // 用 ScriptProcessor 抓原始 PCM（Analyser 只给频谱）
+  const proc = ac.createScriptProcessor(4096, 1, 1);
+  src.connect(proc);
+  proc.connect(ac.destination);
+  proc.onaudioprocess = (ev) => {
+    if (!running) return;
+    const ch = ev.inputBuffer.getChannelData(0);
+    recL.push(new Float32Array(ch));
+    for (let i = 0; i < ch.length; i++) {
+      const a = Math.abs(ch[i]);
+      if (a > recMax) recMax = a;
+    }
+    // 只保留最近 5 秒
+    let total = recL.length * 4096;
+    while (total > ac.sampleRate * 5) { total -= recL[0].length; recL.shift(); }
+  };
+
+  requestAnimationFrame(loop);
+};
+
+function stop() {
+  running = false;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (ac) ac.close();
+  btn.textContent = '开始测量';
+  btn.className = '';
+  dl.disabled = recL.length === 0;
+}
+
+dl.onclick = () => {
+  if (!recL.length) return;
+  const sr = ac ? ac.sampleRate : 48000;
+  const n = recL.reduce((s, a) => s + a.length, 0);
+  const pcm = new Int16Array(n);
+  let k = 0;
+  for (const a of recL) for (let i = 0; i < a.length; i++) {
+    let v = Math.max(-1, Math.min(1, a[i]));
+    pcm[k++] = v < 0 ? v * 0x8000 : v * 0x7FFF;
+  }
+  const wavBuf = new ArrayBuffer(44 + pcm.length * 2);
+  const dv = new DataView(wavBuf);
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF'); dv.setUint32(4, 36 + pcm.length * 2, true); ws(8, 'WAVE');
+  ws(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true);
+  dv.setUint16(22, 1, true); dv.setUint32(24, sr, true);
+  dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  ws(36, 'data'); dv.setUint32(40, pcm.length * 2, true);
+  new Uint8Array(wavBuf, 44).set(new Uint8Array(pcm.buffer));
+  const blob = new Blob([wavBuf], { type: 'audio/wav' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mic_' + Date.now() + '.wav';
+  a.click();
+};
+
+function loop() {
+  if (!running) return;
+  requestAnimationFrame(loop);
+
+  const n = analyser.frequencyBinCount;
+  const data = new Float32Array(n);
+  analyser.getFloatFrequencyData(data);   // dBFS
+
+  // ---- 频谱 ----
+  const W = spec.canvas.width, H = spec.canvas.height;
+  spec.fillStyle = '#000'; spec.fillRect(0, 0, W, H);
+  spec.strokeStyle = '#222'; spec.lineWidth = 1;
+  for (let d = 0; d <= 4; d++) {   // 每 20 dB 一条横线
+    const y = H - (d / 4) * H;
+    spec.beginPath(); spec.moveTo(0, y); spec.lineTo(W, y); spec.stroke();
+  }
+  spec.beginPath();
+  let maxBin = 0, maxVal = -Infinity;
+  for (let i = 1; i < n; i++) {
+    const f = i * ac.sampleRate / FFT;
+    if (f < 20 || f > 24000) continue;
+    const x = Math.log10(f / 20) / Math.log10(24000 / 20) * W;
+    const v = Math.max(-120, data[i]);
+    const y = H - ((v + 120) / 120) * H;
+    if (i < 2) spec.moveTo(x, y); else spec.lineTo(x, y);
+    if (data[i] > maxVal) { maxVal = data[i]; maxBin = i; }
+  }
+  spec.strokeStyle = '#3f8'; spec.lineWidth = 1.5; spec.stroke();
+
+  document.getElementById('pf').textContent = (maxBin * ac.sampleRate / FFT).toFixed(0) + ' Hz';
+  document.getElementById('pl').textContent = maxVal.toFixed(1) + ' dB';
+
+  // ---- 波形 ----
+  const t = new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(t);
+  const WW = wav.canvas.width, WH = wav.canvas.height;
+  wav.fillStyle = '#000'; wav.fillRect(0, 0, WW, WH);
+  wav.strokeStyle = '#555';
+  wav.beginPath(); wav.moveTo(0, WH / 2); wav.lineTo(WW, WH / 2); wav.stroke();
+  wav.beginPath();
+  for (let i = 0; i < t.length; i++) {
+    const x = i / t.length * WW;
+    const y = WH / 2 - t[i] * (WH / 2) * 1.8;
+    if (i === 0) wav.moveTo(x, y); else wav.lineTo(x, y);
+  }
+  wav.strokeStyle = '#fc3'; wav.lineWidth = 1; wav.stroke();
+
+  // ---- 顶部 8 个峰 ----
+  const peaks = [];
+  for (let i = 2; i < n - 1; i++) {
+    if (data[i] > data[i - 1] && data[i] >= data[i + 1]) {
+      peaks.push([i * ac.sampleRate / FFT, data[i]]);
+    }
+  }
+  peaks.sort((a, b) => b[1] - a[1]);
+  const tb = document.querySelector('#pk tbody');
+  tb.innerHTML = peaks.slice(0, 8).map((p, i) =>
+    `<tr><td>${i + 1}</td><td>${p[0].toFixed(0)}</td><td>${p[1].toFixed(1)}</td></tr>`).join('');
+}
+</script>
+</body>
+</html>

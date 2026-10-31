@@ -51,7 +51,10 @@ module synth_top #(
     output wire                    i2s_din,
     // ---- 调试观测口（综合时可忽略）----
     output wire [VOICE_NUM-1:0]    dbg_voice_busy,
-    output wire signed [15:0]      dbg_mix
+    output wire signed [15:0]      dbg_mix,
+    // ---- 给上位机串口用（可悬空）----
+    output wire                    dbg_sample_req,
+    output wire signed [15:0]      dbg_audio_out
 );
 
     // ==================================================================
@@ -195,6 +198,10 @@ module synth_top #(
     wire piano_mode = (wave_sel == 3'b100);
 
     wire signed [15:0] audio_out = piano_mode ? piano_audio : mix_out[15:0];
+
+    // 引出给串口帧（dbg_ 端口，不接也不影响功能）
+    assign dbg_sample_req = sample_req;
+    assign dbg_audio_out  = audio_out;
 
     // ==================================================================
     // 8. I2S 发送

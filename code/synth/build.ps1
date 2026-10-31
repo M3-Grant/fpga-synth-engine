@@ -15,21 +15,37 @@
         This script always emits that option.
 #>
 param(
-    [ValidateSet('tone_test', 'chord_demo', 'synth_board12', 'synth_board', 'self_test_12notes', 'self_test_square', 'synth_ttp229', 'ttp229_debug')]
+    [ValidateSet('tone_test', 'chord_demo', 'synth_board12', 'synth_board', 'self_test_12notes', 'self_test_square', 'synth_ttp229', 'ttp229_debug', 'self_test_uart')]
     [string]$Target = 'tone_test',
 
     [ValidateSet('none', 'sram', 'flash')]
     [string]$Program = 'none',
 
-    [string]$GowinHome   = 'D:\Gowin\Gowin_V1.9.11.03_Education_x64',
+    [string]$GowinHome   = $env:GOWINHOME,
     [string]$Device      = 'GW2AR-LV18QN88C8/I7',
     [string]$DeviceShort = 'GW2AR-18C'
 )
 
 $ErrorActionPreference = 'Stop'
 
-if (-not (Test-Path $GowinHome)) { throw "GowinHome not found: $GowinHome" }
+# ---------- auto-detect Gowin installation (keep this file ASCII only) ----------
+if (-not $GowinHome -or -not (Test-Path $GowinHome)) {
+    $cands = @()
+    if ($env:GOWINHOME) { $cands += $env:GOWINHOME }
+    foreach ($d in @('C','D','E','F')) {
+        $cands += "${d}:\Gowin\Gowin_V1.9.11.03_Education_x64"
+        $cands += "${d}:\Program Files\Gowin\Gowin_V1.9.11.03_Education_x64"
+        $cands += "${d}:\Program Files (x86)\Gowin\Gowin_V1.9.11.03_Education_x64"
+    }
+    foreach ($c in $cands) {
+        if ($c -and (Test-Path (Join-Path $c 'IDE\bin\gw_sh.exe'))) { $GowinHome = $c; break }
+    }
+}
+if (-not $GowinHome -or -not (Test-Path $GowinHome)) {
+    throw "Gowin installation not found. Pass -GowinHome '<dir containing IDE\bin\gw_sh.exe>' or set GOWINHOME."
+}
 $env:GOWINHOME = $GowinHome
+Write-Host "Gowin    : $GowinHome"
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $rtlDir   = Join-Path $repoRoot 'code\rtl'
@@ -82,7 +98,7 @@ $targets = @{
         Rtl = @('clk_div.v', 'debounce.v', 'key_scan.v', 'ir_gesture.v', 'i2s_tx.v',
                 'note_table.v', 'adsr.v', 'osc_voice.v', 'oscillator_array.v',
                 'note_alloc.v', 'mix_tree.v', 'piano_engine.v', 'synth_top.v',
-                'ttp229_scan.v', 'synth_ttp229_top.v')
+                'ttp229_scan.v', 'uart_stream.v', 'uart_rx.v', 'ui_cmd.v', 'synth_ttp229_top.v')
         Cst = 'synth_ttp229.cst'
     }
     # TTP229 bit-mapping debug: press a key, LEDs show its bit number
@@ -90,6 +106,11 @@ $targets = @{
         Top = 'ttp229_debug'
         Rtl = @('ttp229_scan.v', 'ttp229_debug.v')
         Cst = 'ttp229_debug.cst'
+    }
+    'self_test_uart' = @{
+        Top = 'self_test_uart'
+        Rtl = @('i2s_tx.v', 'note_table.v', 'piano_engine.v', 'uart_stream.v', 'self_test_uart.v')
+        Cst = 'synth_uart.cst'
     }
 }
 

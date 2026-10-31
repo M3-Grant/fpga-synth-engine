@@ -36,16 +36,19 @@ module synth_ttp229_top #(
     // TTP229 时序（仿真时可缩短，上板保持默认 200µs/500kHz/20ms）
     parameter TTP_SYNC_CNT = 5_400,
     parameter TTP_SCL_HALF = 27,
-    parameter TTP_GAP_CNT  = 540_000
+    parameter TTP_GAP_CNT  = 540_000,
+    parameter TTP_ACTIVE_LOW = 1          // TTP229 输出 0=按下，必须取反
 )(
     input  wire        clk,        // 27 MHz，引脚 4
     input  wire        ir_in,      // 红外避障模块（低 = 有手），引脚 74
     output wire        ttp_scl,    // → TTP229 SCL，引脚 75
     input  wire        ttp_sdo,    // ← TTP229 SDO，引脚 76
+    input  wire        uart_rx_i, // ← USB-TTL 的 TXD，引脚 70
     output wire        i2s_bck,    // 引脚 56
     output wire        i2s_lrck,   // 引脚 55
     output wire        i2s_din,    // 引脚 54
     output wire        pa_en,      // 引脚 51（新链路可不用）
+    output wire [4:0]  uart_tx,    // 串口帧输出（48/69/42/77/79，接一个即可）
     output wire [5:0]  led         // 引脚 15~20（低电平点亮）
 );
 
@@ -85,22 +88,26 @@ module synth_ttp229_top #(
     // 3. 16 位 → 12 个音（位映射表）
     //    实测后只改这个 function 里的 12 个数字，其它代码不用动
     // ==================================================================
+    // ── 实测标定（2026-10-31，Qhebot 12 键钢琴触摸板）──────────────
+    //  方法：烧 ttp229_debug，逐个戳键读 LED 位号（LED 1~6 从右往左 = led[0]~led[5]）
+    //  实测（C4..B4）：11, 0, 10, 15, 9, 8, 14, 7, 13, 6, 12, 5
+    //  注意：只用到了 bit 0 与 5~15，bit 1~4 悬空 —— 这是该模块的走线特点
     function [3:0] TTP_BIT;
         input [3:0] i;            // i = 0..11（C4..B4）
         begin
             case (i)
-                4'd0 : TTP_BIT = 4'd0;
-                4'd1 : TTP_BIT = 4'd1;
-                4'd2 : TTP_BIT = 4'd2;
-                4'd3 : TTP_BIT = 4'd3;
-                4'd4 : TTP_BIT = 4'd4;
-                4'd5 : TTP_BIT = 4'd5;
-                4'd6 : TTP_BIT = 4'd6;
-                4'd7 : TTP_BIT = 4'd7;
-                4'd8 : TTP_BIT = 4'd8;
-                4'd9 : TTP_BIT = 4'd9;
-                4'd10: TTP_BIT = 4'd10;
-                default: TTP_BIT = 4'd11;
+                4'd0 : TTP_BIT = 4'd11;   // C4
+                4'd1 : TTP_BIT = 4'd0;    // C#4
+                4'd2 : TTP_BIT = 4'd10;   // D4
+                4'd3 : TTP_BIT = 4'd15;   // D#4
+                4'd4 : TTP_BIT = 4'd9;    // E4
+                4'd5 : TTP_BIT = 4'd8;    // F4
+                4'd6 : TTP_BIT = 4'd14;   // F#4
+                4'd7 : TTP_BIT = 4'd7;    // G4
+                4'd8 : TTP_BIT = 4'd13;   // G#4
+                4'd9 : TTP_BIT = 4'd6;    // A4
+                4'd10: TTP_BIT = 4'd12;   // A#4
+                default: TTP_BIT = 4'd5;  // B4
             endcase
         end
     endfunction
@@ -110,7 +117,9 @@ module synth_ttp229_top #(
     genvar gi;
     generate
         for (gi = 0; gi < KEY_NUM; gi = gi + 1) begin : gen_keymap
-            assign key[gi] = ttp_keys[TTP_BIT(gi)];
+            // TTP229 是低有效（0 = 按下），这里按参数取反
+            assign key[gi] = TTP_ACTIVE_LOW ? ~ttp_keys[TTP_BIT(gi)]
+                                            :  ttp_keys[TTP_BIT(gi)];
         end
     endgenerate
 
@@ -140,7 +149,10 @@ module synth_ttp229_top #(
     // ==================================================================
     // 5. 红外手势 → 音色切换（第二演奏维度）
     // ==================================================================
-    wire [2:0] wave_sel;
+    wire [2:0] ir_wave;              // 红外维护的音色
+    wire [2:0] ui_wave;              // 上位机指定的音色
+    wire       ui_active;            // 1 = UI 在控，0 = 红外在控
+    wire [2:0] wave_sel = ui_active ? ui_wave : ir_wave;   // 最终音色（硬件优先）
     wire       ir_gesture_valid;
     wire       ir_hand;
     wire       swipe_tooshort;
@@ -156,11 +168,39 @@ module synth_ttp229_top #(
         .clk           (clk),
         .rst_n         (rst_n),
         .ir_in         (ir_in),
-        .wave_sel      (wave_sel),
+        .wave_sel      (ir_wave),        // 红外维护的音色（最终音色在外部选择）
         .gesture_valid (ir_gesture_valid),
         .hand_level    (ir_hand),
         .swipe_tooshort(swipe_tooshort),
         .swipe_toolong (swipe_toolong)
+    );
+
+    // ==================================================================
+    // 5b. 上位机下行命令（UI 实时切音色）
+    //     硬件优先：挥手时 ui_cmd 的 clr_i 拉高，立刻交回红外控制
+    // ==================================================================
+    wire [7:0] ui_rx_data;
+    wire       ui_rx_valid;
+
+    uart_rx #(
+        .CLK_HZ (27_000_000),
+        .BAUD   (115200)
+    ) u_ui_rx (
+        .clk   (clk),
+        .rst_n (rst_n),
+        .rx    (uart_rx_i),
+        .data  (ui_rx_data),
+        .valid (ui_rx_valid)
+    );
+
+    ui_cmd u_ui_cmd (
+        .clk      (clk),
+        .rst_n    (rst_n),
+        .rx_data  (ui_rx_data),
+        .rx_valid (ui_rx_valid),
+        .clr_i    (ir_gesture_valid),     // 挥手 → 交回红外
+        .ui_wave  (ui_wave),
+        .ui_active(ui_active)
     );
 
     // ==================================================================
@@ -186,8 +226,36 @@ module synth_ttp229_top #(
         .i2s_lrck       (i2s_lrck),
         .i2s_din        (i2s_din),
         .dbg_voice_busy (dbg_voice_busy),
-        .dbg_mix        (dbg_mix)
+        .dbg_mix        (dbg_mix),
+        .dbg_sample_req (i2s_sample_req),
+        .dbg_audio_out  (i2s_audio_out)
     );
+
+    // ==================================================================
+    // 6b. 串口帧输出（给上位机 synth_viz.py）
+    // ==================================================================
+    wire        i2s_sample_req;
+    wire signed [15:0] i2s_audio_out;
+
+    uart_stream #(
+        .CLK_HZ (27_000_000),
+        .BAUD   (115200),
+        .DECIM  (7)
+    ) u_uart (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .sample_en  (i2s_sample_req),
+        .audio      (i2s_audio_out),
+        .keys       (key_state),
+        .timbre     (wave_sel),
+        .voices     ({2'b00, (|dbg_voice_busy)}),
+        .uart_tx    (uart_tx_line),
+        .frame_busy (frame_busy)
+    );
+
+    wire uart_tx_line;
+    wire frame_busy;
+    assign uart_tx = {5{uart_tx_line}};
 
     // ==================================================================
     // 7. 功放使能
