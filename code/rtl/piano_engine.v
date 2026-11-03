@@ -41,7 +41,10 @@
 // ============================================================================
 module piano_engine #(
     parameter VOICE_NUM  = 4,
-    parameter HARM_NUM   = 6,          // 谐波数（1..6 次）
+    parameter HARM_NUM   = 6,
+    // 音色预设：0=钢琴(1/h^1.5 全谐波, 快衰减)
+    //           1=长笛(基波+微弱泛音, 极慢衰减)
+    parameter TIMBRE     = 0,          // 谐波数（1..6 次）
     parameter PHASE_BITS = 32
 )(
     input  wire                            clk,
@@ -62,32 +65,121 @@ module piano_engine #(
     function [15:0] harm_weight;
         input [3:0] h;
         begin
-            case (h)
-                4'd1: harm_weight = 16'd35840;   // 1.000
-                4'd2: harm_weight = 16'd12672;   // 0.354
-                4'd3: harm_weight = 16'd6912;    // 0.193
-                4'd4: harm_weight = 16'd4480;    // 0.125
-                4'd5: harm_weight = 16'd3200;    // 0.089
-                4'd6: harm_weight = 16'd2432;    // 0.068
-                default: harm_weight = 16'd0;
-            endcase
+            if (TIMBRE == 3) begin
+                // ---- 马林巴：非谐性谐波，高次加权以取得"清脆" ----
+                //   1 : 0.50 : 0.28 : 0.13（越往高频份量越足）
+                case (h)
+                    4'd1: harm_weight = 16'd30000;   // 1.000
+                    4'd2: harm_weight = 16'd15000;   // 0.500（3.9 倍频）
+                    4'd3: harm_weight = 16'd8400;    // 0.280（9.2 倍频）
+                    4'd4: harm_weight = 16'd12136;   // 0.405（16.3 倍频）
+                    default: harm_weight = 16'd0;
+                endcase
+            end
+            else if (TIMBRE == 2) begin
+                // ---- 管风琴：6 个谐波全开（近似等权重）----
+                //   真实管风琴 = 不同长度的管子同时发声 = 谐波叠加，
+                //   这正是加法合成最擅长的乐器。
+                //   和 = 65536
+                //   音栓式配比：只叠八度关系（8'/4'/2'）+ 少量五度(2 2/3')
+                //   1 : 0.50 : 0.11 : 0.21 : 0 : 0
+                //   （之前把 1~6 次全开且均匀，那其实是锯齿波，听起来像"喇叭"）
+                case (h)
+                    4'd1: harm_weight = 16'd36000;   // 8'   基波，主导
+                    4'd2: harm_weight = 16'd18000;   // 4'
+                    4'd3: harm_weight = 16'd4000;    // 2 2/3' 五度音栓（少量）
+                    4'd4: harm_weight = 16'd7536;    // 2'
+                    4'd5: harm_weight = 16'd0;       // 关
+                    4'd6: harm_weight = 16'd0;       // 关
+                    default: harm_weight = 16'd0;
+                endcase
+            end
+            else if (TIMBRE == 1) begin
+                // ---- 长笛：几乎纯正弦，只有一点点 2/3 次泛音 ----
+                //   1 : 0.08 : 0.012，和 = 65536（归一化）
+                case (h)
+                    4'd1: harm_weight = 16'd60000;   // 1.000
+                    4'd2: harm_weight = 16'd4800;    // 0.080
+                    4'd3: harm_weight = 16'd736;     // 0.012
+                    default: harm_weight = 16'd0;
+                endcase
+            end
+            else begin
+                // ---- 钢琴：1/h^1.5 全谐波 ----
+                case (h)
+                    4'd1: harm_weight = 16'd35840;   // 1.000
+                    4'd2: harm_weight = 16'd12672;   // 0.354
+                    4'd3: harm_weight = 16'd6912;    // 0.193
+                    4'd4: harm_weight = 16'd4480;    // 0.125
+                    4'd5: harm_weight = 16'd3200;    // 0.089
+                    4'd6: harm_weight = 16'd2432;    // 0.068
+                    default: harm_weight = 16'd0;
+                endcase
+            end
         end
     endfunction
 
     // 指数衰减的右移位数：env -= env>>s 的时间常数 = 2^s 个采样
     //   s=14 → 16384 采样 ≈ 310 ms（基波，约 2.2 s 衰到 -60 dB）
     //   s=11 →  2048 采样 ≈  39 ms（6 次谐波，约 0.27 s）
+    // ------------------------------------------------------------------
+    // 谐波倍率（×16 定点）：整数倍用于钢琴/长笛/管风琴，非整数倍用于马林巴
+    //   马林巴的真实频谱是 1 : 3.9 : 9.2（非谐性）——这正是它"木质"的来源，
+    //   用整数倍谐波是做不出来的（那会变成风琴/喇叭）。
+    // ------------------------------------------------------------------
+    function [8:0] harm_ratio;   // 9 位：×16 定点最大支持 31.9 倍
+        input [3:0] h;
+        begin
+            if (TIMBRE == 3) begin
+                // 马林巴的振动模态：1 : 3.9 : 9.2 : 16.3（越往上越"清脆"）
+                case (h)
+                    4'd1: harm_ratio = 8'd16;    // 1.000
+                    4'd2: harm_ratio = 8'd62;    // 3.875
+                    4'd3: harm_ratio = 8'd147;   // 9.1875
+                    4'd4: harm_ratio = 9'd261;   // 16.3125
+                    default: harm_ratio = 8'd0;
+                endcase
+            end
+            else begin
+                case (h)
+                    4'd1: harm_ratio = 8'd16;
+                    4'd2: harm_ratio = 8'd32;
+                    4'd3: harm_ratio = 8'd48;
+                    4'd4: harm_ratio = 8'd64;
+                    4'd5: harm_ratio = 8'd80;
+                    default: harm_ratio = 8'd96;
+                endcase
+            end
+        end
+    endfunction
     function [3:0] decay_shift;
         input [3:0] h;
         begin
-            case (h)
-                4'd1: decay_shift = 4'd14;
-                4'd2: decay_shift = 4'd13;
-                4'd3: decay_shift = 4'd13;
-                4'd4: decay_shift = 4'd12;
-                4'd5: decay_shift = 4'd12;
-                default: decay_shift = 4'd11;
-            endcase
+            if (TIMBRE == 3) begin
+                // ---- 马林巴：更短的衰减（"哒"一下就消失）----
+                case (h)
+                    4'd1: decay_shift = 4'd12;   // τ ≈ 78 ms
+                    4'd2: decay_shift = 4'd10;   // τ ≈ 19 ms
+                    4'd3: decay_shift = 4'd10;
+                    default: decay_shift = 4'd9;  // τ ≈ 10 ms（高次瞬间消失）
+                endcase
+            end
+            else if (TIMBRE == 1) begin
+                // ---- 长笛：极慢衰减（s=15 → τ=32768 采样 ≈ 621 ms）----
+                //   2 秒只衰约 28 dB，听感接近"持续音"
+                decay_shift = 4'd15;
+            end
+            else begin
+                // ---- 钢琴：高次谐波衰得快（音色由亮变暗）----
+                case (h)
+                    4'd1: decay_shift = 4'd14;
+                    4'd2: decay_shift = 4'd13;
+                    4'd3: decay_shift = 4'd13;
+                    4'd4: decay_shift = 4'd12;
+                    4'd5: decay_shift = 4'd12;
+                    default: decay_shift = 4'd11;
+                endcase
+            end
         end
     endfunction
 
@@ -106,11 +198,15 @@ module piano_engine #(
                 localparam IDX = gv * HARM_NUM + (gh - 1);
                 localparam WGT = harm_weight(gh);      // A[h]
                 localparam DSC = decay_shift(gh);      // 衰减右移位数
-                localparam WST = WGT >> 6;             // 起音步进（64 拍到位）
+                // 起音步进：钢琴/长笛 64 拍（1.2 ms，瞬间起音）；
+//           管风琴 2048 拍（约 38 ms，有"渐强"感）
+localparam WST = (TIMBRE == 2) ? (WGT >> 11) : (WGT >> 6);
 
+                localparam RAT = harm_ratio(gh);       // ×16 定点的倍数
                 wire [PHASE_BITS-1:0] fcw_v = voice_fcw[gv*PHASE_BITS +: PHASE_BITS];
-                // 谐波 h 的相位增量 = h × 基频 FCW（h 是常量，综合成移位加法）
-                wire [PHASE_BITS+2:0] inc_v = fcw_v * gh;
+                // 谐波相位增量 = fcw × (倍率/16)，倍率是常量 → 综合成移位加法
+                wire [PHASE_BITS+9:0] inc_full = fcw_v * RAT;
+                wire [PHASE_BITS-1:0]  inc_v    = inc_full[PHASE_BITS+3:4];
 
                 always @(posedge clk or negedge rst_n) begin
                     if (!rst_n) begin
@@ -125,7 +221,7 @@ module piano_engine #(
                         atk[IDX] <= 1'b1;
                     end
                     else if (sample_req) begin
-                        phase[IDX] <= phase[IDX] + inc_v[PHASE_BITS-1:0];
+                        phase[IDX] <= phase[IDX] + inc_v;
 
                         if (atk[IDX]) begin
                             if (env[IDX] >= WGT) begin
@@ -140,8 +236,13 @@ module piano_engine #(
                             // 已静音，保持 0（必须显式判断，否则 0-1 会回绕成 65535）
                         end
                         else if (voice_busy[gv]) begin
-                            // 自然衰减：高次谐波掉得快，音色由亮变暗
-                            env[IDX] <= env[IDX] - ((env[IDX] >> DSC) | 16'd1);
+                            if (TIMBRE == 2) begin
+                                // 管风琴：按住时包络保持（持续音，不衰减）
+                            end
+                            else begin
+                                // 自然衰减：高次谐波掉得快，音色由亮变暗
+                                env[IDX] <= env[IDX] - ((env[IDX] >> DSC) | 16'd1);
+                            end
                         end
                         else begin
                             // 松键：damper 快速止音（τ ≈ 9.7 ms）

@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>十二键电子琴 · FPGA 实时可视化</title>
+<style>
+  :root{
+    --bg:#0d0d10; --panel:#141419; --grid:#26262e;
+    --text:#d8d8e0; --dim:#7a7a8a;
+    --accent:#3fb6f0; --wave:#e8d24a; --ok:#5ad48a; --bad:#e06060;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:
+      radial-gradient(60% 80% at 0% 100%, rgba(30,80,140,.18), transparent 60%),
+      radial-gradient(50% 70% at 100% 0%, rgba(40,50,110,.14), transparent 62%),
+      var(--bg);
+    color:var(--text);
+    font-family:"Microsoft YaHei","PingFang SC","Segoe UI",sans-serif;
+    overflow:hidden}
+  #app{display:flex;flex-direction:column;height:100vh;padding:10px 14px;gap:8px}
+  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  h1{font-size:15px;font-weight:600;letter-spacing:.5px;
+    background:linear-gradient(90deg,#e6e6ee 0%,#8fc7ef 100%);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .hint{font-size:11px;color:var(--dim)}
+  .bar{display:flex;align-items:center;gap:8px;font-size:12px}
+  button{background:transparent;border:1px solid var(--grid);color:var(--text);
+    padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;
+    transition:.15s}
+  button:hover{background:var(--panel);border-color:var(--accent)}
+  button.primary{border-color:var(--accent);color:var(--accent)}
+  select{background:var(--panel);border:1px solid var(--grid);color:var(--text);
+    padding:4px 8px;border-radius:6px;font-size:12px}
+  .status{font-size:11px;color:var(--dim)}
+  .status.ok{color:var(--ok)}
+  .status.bad{color:var(--bad)}
+  .chip{font-size:11px;color:var(--dim);border:1px solid var(--grid);
+    border-radius:999px;padding:2px 9px}
+
+  /* 主网格：李萨如占左列并跨两行（左上整块都给它），
+     右侧上方是频谱、下方是波形，12 音统计横跨右侧底行。 */
+  .grid{display:grid;
+    grid-template-columns:1.15fr 1fr 1fr;
+    grid-template-rows:1fr 1fr;
+    grid-template-areas:
+      "hero spec notes"
+      "hero wave wave";
+    gap:8px;flex:1 1 auto;min-height:220px}
+  .card.hero{grid-area:hero}
+  .card.spec{grid-area:spec}
+  .card.wave{grid-area:wave}
+  .card.notes{grid-area:notes}
+  /* 李萨如是本作品的展示亮点：占整页宽度 30%+，并给一圈强调光 */
+  .card.hero{border-color:rgba(63,182,240,.34);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 0 0 1px rgba(63,182,240,.10),
+               0 2px 18px rgba(63,182,240,.14)}
+  .card.hero .title{color:#9fd7f5}
+  .card{background:linear-gradient(180deg,#16161d 0%,#121218 100%);
+    border:1px solid var(--grid);border-radius:12px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.045), 0 2px 10px rgba(0,0,0,.28);
+    position:relative;overflow:hidden}
+  .card canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
+  .card .title{position:absolute;top:8px;left:10px;font-size:11px;color:var(--dim);
+    pointer-events:none}
+  .card .sub{position:absolute;bottom:6px;right:10px;font-size:10px;color:var(--dim);
+    pointer-events:none;opacity:.8}
+
+  /* 延迟：压缩成一行，放在琴键下面 */
+  .latline{display:flex;align-items:baseline;gap:10px;flex:0 0 auto;
+    padding:2px 4px 0;font-size:11px;color:var(--dim)}
+  .latline .latlab{letter-spacing:.5px}
+  .latline .latval{font-size:19px;font-weight:600;font-family:Consolas,monospace;
+    color:var(--accent);line-height:1.1;transition:color .25s}
+  .latline .latval.low{color:var(--ok);text-shadow:0 0 16px rgba(90,212,138,.35)}
+  .latline .latsub{font-size:10px;color:var(--dim);font-family:Consolas,monospace}
+
+  .notes{padding:8px 12px 4px;position:relative;overflow:hidden}
+  .notes .cap{font-size:11px;color:var(--dim);margin-bottom:2px;height:16px}
+  .notes canvas{position:absolute;left:8px;right:8px;top:24px;bottom:4px;
+    width:calc(100% - 16px);height:calc(100% - 28px)}
+
+  /* 键盘固定高度，剩余空间全部让给上面的可视化区 */
+  .kb{display:flex;gap:6px;flex:0 0 24vh;min-height:80px;overflow:hidden}
+  .key{border-radius:0 0 8px 8px;display:flex;align-items:flex-end;
+    justify-content:center;padding-bottom:6px;font-size:10px;color:#333;
+    transition:background .08s, box-shadow .08s, color .08s;cursor:default;height:100%}
+  .key.w{background:linear-gradient(180deg,#fbfbfd 0%,#dcdce4 100%);flex:1;height:100%}
+  .key.b{background:linear-gradient(180deg,#34343f 0%,#1a1a24 100%);color:#aaa;flex:.6;
+    margin:0 -1.5%;z-index:2;height:62%}
+  .key.on{background:var(--accent);color:#fff;box-shadow:0 0 14px rgba(63,182,240,.6)}
+  footer{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);flex:0 0 auto}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>十二键电子琴 · Tang Nano 20K · 实时可视化</h1>
+    <div class="bar">
+      <button id="btnBridge" class="primary">连接桥接</button>
+      <button id="btnConn">连接串口</button>
+      <button id="btnReplay">播放录制</button>
+      <button id="btnFake">模拟数据</button>
+      <span class="status" id="status">未连接</span>
+    </div>
+    <div class="bar">
+      <span class="hint">音色</span>
+      <select id="timbre">
+        <option>三角波</option><option>方波</option><option>锯齿波</option>
+        <option>脉冲波</option><option>钢琴</option><option>吉他</option>
+        <option>正弦波(测试)</option>
+      </select>
+    </div>
+    <span class="chip" id="srcChip">数据源 —</span>
+    <div class="bar hint" id="fps">— fps</div>
+  </header>
+
+  <div class="grid">
+    <div class="card hero"><span class="title">李萨如图形（信号 vs 90° 相移 · Hilbert）</span>
+      <span class="sub" id="lissSub"></span><canvas id="cLiss"></canvas></div>
+    <div class="card spec"><span class="title">实时频谱</span>
+      <span class="sub" id="specSub"></span><canvas id="cSpec"></canvas></div>
+    <div class="card wave"><span class="title">波形显示</span>
+      <span class="sub" id="waveSub"></span><canvas id="cWave"></canvas></div>
+    <div class="card notes">
+      <div class="cap" id="noteCap">12 音按键次数</div>
+      <canvas id="cNotes"></canvas>
+    </div>
+  </div>
+
+  <div class="kb" id="kb"></div>
+
+  <div class="latline">
+    <span class="latlab">实时延迟</span>
+    <span class="latval" id="latBig">—— ms</span>
+    <span class="latsub" id="latSub">等待第一次触摸…</span>
+    <span class="latsub" id="latSub2"></span>
+  </div>
+
+  <footer>
+    <span id="footL">等待连接…</span>
+    <span id="footR">0 次按键</span>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ==========================================================================
+   数据源：真实串口（Web Serial）/ 录制回放 / 内置模拟
+   ========================================================================== */
+const FRAME_LEN = 576, MAGIC = [0xA5, 0x5A];
+const FS_AUDIO = 52734.375;          // 音频采样率
+const CLK_HZ   = 27e6;
+const NOTE_NAMES = ["C4","C#4","D4","D#4","E4","F4","F#4","G4","G#4","A4","A#4","B4"];
+const TIMBRE_NAMES = ["三角波","方波","锯齿波","脉冲波","钢琴","吉他","正弦波"];
+
+const state = {
+  mode: "idle",                       // idle | fake | serial | replay
+  decim: 7,                           // 每 decim 个音频采样取 1 个点上送
+  frames: 0, framesBad: 0, bytesTotal: 0,
+  samples: new Float32Array(512),
+  timbre: 0, keys: 0, voices: 0,
+  lat: { last:0, min:0xFFFFFFFF, max:0, sum:0, cnt:0, scan:0, valid:false },
+  noteCounts: new Array(12).fill(0),
+  keysPrev: 0,
+  dataFps: 0, fps: 0, _fpsT: performance.now(), _fpsN: 0,
+  _dfT: 0, _dfN: 0,
+};
+
+/* 有效采样率与频率轴：payload 是抽取后的数据，必须按 decim 还原 */
+function fsEff(){ return FS_AUDIO / state.decim; }
+function binHz(){ return fsEff() / 512; }
+function winMs(){ return 512 * state.decim / FS_AUDIO * 1000; }
+
+/* ---- 频谱：多帧累积到 2048 点再做 FFT -------------------------------
+   高速模式下（DECIM=1）单帧 512 点只有 103 Hz/bin，谱线太糊；
+   把最近 4 帧拼起来做 2048 点 FFT，bin 回到 25.7 Hz。
+   FFT 每 4 帧算一次（约 25 fps），画柱子仍然每帧都跟。 */
+const FFT_N = 2048;
+const fftBuf = new Float32Array(FFT_N);
+let   specDirty = true;
+let   lissGhost = null;      // 李萨如残影缓冲（上一帧轨迹）
+function binHzFFT(){ return fsEff() / FFT_N; }
+
+/* ---- 模拟数据源（没有硬件时验证渲染）---- */
+let fakeTimer = null, fakeT = 0;
+function startFake(){
+  stopAll();
+  state.mode = "fake"; state.decim = 1;
+  state.frames = 0; state.bytesTotal = 0;
+  state.lat = { last:0, min:0xFFFFFFFF, max:0, sum:0, cnt:0, scan:540000, valid:true };
+  fakeTimer = setInterval(()=>{
+    // 二复音：A4(440) + E5(660) 纯五度叠加，验证多声部显示
+    const tbr = state.timbre;
+    const FREQS = [440.0, 660.0];
+    function oneTone(tbr, ph){
+      if(tbr === 0) return 1 - 4*Math.abs(ph - 0.5);   // 三角
+      if(tbr === 1) return ph < 0.5 ? 0.75 : -0.75;    // 方波
+      if(tbr === 2) return 2*ph - 1;                   // 锯齿
+      if(tbr === 3) return ph < 0.1 ? 0.8 : -0.09;     // 脉冲
+      return Math.sin(2*Math.PI*ph);                   // 正弦
+    }
+    for(let i=0;i<512;i++){
+      const t = fakeT + i/FS_AUDIO;
+      let v = 0;
+      for(const f0 of FREQS){
+        const ph = (t*f0) % 1;
+        if(tbr === 4){          // 钢琴：6 谐波
+          for(let h=1;h<=6;h++) v += 0.32*Math.sin(2*Math.PI*f0*h*t)/Math.pow(h,1.5);
+        } else if(tbr === 5){   // 吉他：基波 + 弱泛音
+          v += 0.36*Math.sin(2*Math.PI*f0*t)
+             + 0.10*Math.sin(2*Math.PI*f0*2*t)
+             + 0.04*Math.sin(2*Math.PI*f0*3*t);
+        } else {
+          v += 0.42*oneTone(tbr, ph);
+        }
+      }
+      state.samples[i] = v;
+    }
+    fakeT += 512/FS_AUDIO;
+    fakeT %= 1.0;          // 回绕到 1 秒内，避免 t*440 的浮点精度损失
+    state.keys = 0x001;
+    if(state.frames % 45 === 0) state.noteCounts[0]++;
+    state.bytesTotal += FRAME_LEN;
+    state.frames++;
+    state.lat.last = 175500;      // 6.5 ms
+    state.lat.min = 170000;
+    state.lat.max = 180000;
+    state.lat.sum = 1755000;
+    state.lat.cnt = 10;
+    // 与真实数据路径保持一致：填充频谱缓冲、标记 FFT、走数据驱动绘制，
+    // 否则频谱和李萨如都会拿到全 0（模拟模式曾经因此只显示一个点）。
+    fftBuf.copyWithin(0, 512);
+    fftBuf.set(state.samples, FFT_N - 512);
+    if((state.frames & 3) === 0) specDirty = true;
+    updateReadouts();
+    drawAll();
+    setStatus("模拟数据（无需硬件）", true);
+    document.getElementById("srcChip").textContent = "数据源 模拟";
+  }, 1000/60);
+  document.getElementById("footL").textContent = "模拟模式";
+}
+
+function stopAll(){
+  if(fakeTimer){ clearInterval(fakeTimer); fakeTimer = null; }
+  if(replayTimer){ clearInterval(replayTimer); replayTimer = null; }
+  if(bridgeAbort){ try{ bridgeAbort.abort(); }catch(e){} bridgeAbort = null; }
+  if(reader){ try{ reader.cancel(); }catch(e){} reader = null; }
+  if(port){ try{ port.close(); }catch(e){} port = null; }
+  reading = false;
+  state.mode = "idle";
+  document.getElementById("srcChip").textContent = "数据源 —";
+}
+
+/* ---- 统一帧处理（串口 / 回放 / 模拟共用同一渲染管线）---- */
+function handleFrame(f){
+  const dv = new DataView(f.buffer, f.byteOffset, f.byteLength);
+  state.timbre = f[2] & 7;
+  state.keys   = f[3] | ((f[4] & 0x0F) << 8);
+  state.voices = f[5] & 7;
+  const flags  = f[6] & 3;
+  const eff    = f[7] & 3;
+  for(let i=0;i<512;i++) state.samples[i] = (f[8+i] - 128) / 128;
+  // 频谱缓冲：滚动追加 512 点，凑够 4 帧就重算一次 FFT
+  fftBuf.copyWithin(0, 512);
+  fftBuf.set(state.samples, FFT_N - 512);
+  if((state.frames & 3) === 0) specDirty = true;
+  // 抽取比：协议预留字节 [538..539]；为 0 表示老固件（uart_stream DECIM=7）
+  const d = (f[538] | (f[539] << 8));
+  state.decim = d > 0 ? d : (state.mode === "fake" ? 1 : 7);
+  if(flags & 1){
+    state.lat.last = dv.getUint32(520, true);
+    state.lat.min  = dv.getUint32(524, true);
+    state.lat.max  = dv.getUint32(528, true);
+    state.lat.sum  = dv.getUint32(532, true);
+    state.lat.cnt  = dv.getUint16(536, true);
+    state.lat.scan = dv.getUint32(540, true);
+    state.lat.valid = state.lat.cnt > 0;
+  }
+  // PC 端统计按键（固件侧的 [544..567] 计数不可靠，见 HANDOFF §8.2）
+  const rise = state.keys & ~state.keysPrev;
+  for(let i=0;i<12;i++) if(rise & (1<<i)) state.noteCounts[i]++;
+  state.keysPrev = state.keys;
+  state.frames++;
+  // 数据帧率
+  const now = performance.now();
+  if(!state._dfT){ state._dfT = now; state._dfN = 0; }
+  state._dfN++;
+  if(now - state._dfT > 1000){
+    state.dataFps = state._dfN * 1000 / (now - state._dfT);
+    state._dfN = 0; state._dfT = now;
+  }
+  // 音色下拉框跟随固件（用户手动选择后 1.5 s 内不覆盖）
+  const sel = document.getElementById("timbre");
+  if(now - lastUserTimbre > 1500 && state.timbre < 6){
+    if(sel.selectedIndex !== state.timbre) sel.selectedIndex = state.timbre;
+  }
+  updateReadouts();
+  // ★ 数据驱动绘制：每收到一帧就重绘一次，不等 requestAnimationFrame。
+  //   浏览器会因窗口遮挡/省电把 rAF 压到 1 Hz，那样键盘和曲线就变成一秒钟
+  //   才动一下 —— 这正是"按键反馈很慢"的根因。数据到达的回调不受该节流影响。
+  drawAll();
+}
+
+/* ---- 串口字节流解析（Web Serial 与 HTTP 桥接共用）---- */
+let accBuf = new Uint8Array(0);
+function feedBytes(value){
+  const merged = new Uint8Array(accBuf.length + value.length);
+  merged.set(accBuf,0); merged.set(value, accBuf.length);
+  accBuf = merged;
+  let idx;
+  while((idx = findMagic(accBuf)) >= 0){
+    if(accBuf.length - idx < FRAME_LEN) break;
+    handleFrame(accBuf.subarray(idx, idx + FRAME_LEN));
+    accBuf = accBuf.subarray(idx + FRAME_LEN);
+  }
+  state.bytesTotal += value.length;
+  if(accBuf.length > 8192){
+    state.framesBad++;
+    accBuf = accBuf.subarray(accBuf.length - 1024);
+  }
+}
+
+/* ---- Web Serial 真实串口 ---- */
+let port = null, reader = null, reading = false, bridgeAbort = null;
+async function connectSerial(silent){
+  if(!("serial" in navigator)){
+    setStatus("此浏览器不支持 Web Serial（需 Chrome/Edge）", false);
+    return false;
+  }
+  try{
+    stopAll();
+    port = silent ? (await navigator.serial.getPorts())[0] : await navigator.serial.requestPort();
+    if(!port){ setStatus("没有已授权的串口，请点「连接串口」", false); return false; }
+    await port.open({ baudRate: 921600 });
+    state.mode = "serial";
+    state.decim = 1;                  // 固件 uart_stream DECIM 默认值（帧内会覆盖）
+    setStatus("已连接串口 @921600", true);
+    document.getElementById("footL").textContent = "串口模式";
+    document.getElementById("srcChip").textContent = "数据源 串口";
+    reading = true;
+    readLoop();
+    return true;
+  }catch(e){
+    setStatus("连接失败: " + (e && e.message ? e.message : e), false);
+    return false;
+  }
+}
+
+async function readLoop(){
+  accBuf = new Uint8Array(0);
+  while(reading && port && port.readable){
+    reader = port.readable.getReader();
+    try{
+      while(reading){
+        const {value, done} = await reader.read();
+        if(done) break;
+        if(!value || !value.length) continue;
+        feedBytes(value);
+      }
+    }catch(e){ /* 端口关闭 */ }
+    finally{ try{ reader.releaseLock(); }catch(e){} }
+  }
+  if(state.mode === "serial") setStatus("串口已断开（拔插后请重连）", false);
+}
+
+/* ---- HTTP 串口桥接（bridge_server.py）：不需要浏览器授权 ---- */
+async function connectBridge(){
+  try{
+    const info = await (await fetch("/info", {cache:"no-store"})).json();
+    if(!info.serial_ok){
+      setStatus("桥接在线，但串口没连上（检查板子/驱动）", false);
+      return false;
+    }
+    window.__bridgeInfo = info;
+  }catch(e){
+    setStatus("没有桥接服务器（用 start_ui.bat 启动）", false);
+    return false;
+  }
+  stopAll();
+  state.mode = "bridge"; state.decim = 7;
+  state.frames = 0; state.bytesTotal = 0; state.framesBad = 0;
+  accBuf = new Uint8Array(0);
+  setStatus("已连接串口桥接", true);
+  document.getElementById("footL").textContent = "桥接模式";
+  document.getElementById("srcChip").textContent =
+    "数据源 桥接 " + (window.__bridgeInfo.serial_name || "");
+  bridgeAbort = new AbortController();
+  reading = true;
+  bridgeLoop();
+  return true;
+}
+
+async function bridgeLoop(){
+  try{
+    const res = await fetch("/stream", {signal: bridgeAbort.signal, cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const rd = res.body.getReader();
+    while(reading){
+      const {value, done} = await rd.read();
+      if(done) break;
+      if(!value || !value.length) continue;
+      feedBytes(value);
+    }
+  }catch(e){
+    if(reading) setStatus("桥接断开：" + (e && e.message ? e.message : e), false);
+  }
+  if(state.mode === "bridge"){
+    setStatus("桥接断开，2 秒后自动重连…", false);
+    reading = false;
+    setTimeout(()=>{
+      if(state.mode === "bridge" || state.mode === "idle") connectBridge();
+    }, 2000);
+  }
+}
+
+function findMagic(a){
+  for(let i=0;i+1<a.length;i++) if(a[i]===MAGIC[0] && a[i+1]===MAGIC[1]) return i;
+  return -1;
+}
+
+/* ---- 录制回放：用串口抓下来的 .bin 走完全相同的解析路径 ---- */
+let replayTimer = null, replayBuf = null, replayIdx = 0;
+async function startReplay(){
+  const url = new URLSearchParams(location.search).get("replay") || "frames_12notes.bin";
+  try{
+    const r = await fetch(url, {cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    replayBuf = new Uint8Array(await r.arrayBuffer());
+  }catch(e){
+    setStatus("回放文件读取失败: " + e.message + "（先跑 tools/dump_frames.py）", false);
+    return;
+  }
+  stopAll();
+  state.mode = "replay"; state.decim = 7;
+  state.frames = 0; state.bytesTotal = 0;
+  state.noteCounts = new Array(12).fill(0);
+  replayIdx = 0;
+  setStatus("回放录制数据（" + (replayBuf.length / FRAME_LEN | 0) + " 帧）", true);
+  document.getElementById("footL").textContent = "回放模式";
+  document.getElementById("srcChip").textContent = "数据源 回放 " + url;
+  replayTimer = setInterval(()=>{
+    if(replayIdx + FRAME_LEN > replayBuf.length) replayIdx = 0;
+    handleFrame(replayBuf.subarray(replayIdx, replayIdx + FRAME_LEN));
+    replayIdx += FRAME_LEN;
+    if(replayIdx === 0) state.noteCounts = new Array(12).fill(0);
+  }, 1000/8.5);                       // 固件实测帧率 8.5 fps
+}
+
+/* ==========================================================================
+   FFT（radix-2，任意 2 的幂）
+   ========================================================================== */
+function fft(re, im){
+  const n = re.length;
+  for(let i=1,j=0;i<n;i++){
+    let bit = n>>1;
+    for(; j & bit; bit>>=1) j ^= bit;
+    j ^= bit;
+    if(i < j){ [re[i],re[j]]=[re[j],re[i]]; [im[i],im[j]]=[im[j],im[i]]; }
+  }
+  for(let len=2; len<=n; len<<=1){
+    const ang = -2*Math.PI/len;
+    for(let i=0;i<n;i+=len){
+      for(let k=0;k<len/2;k++){
+        const wr = Math.cos(ang*k), wi = Math.sin(ang*k);
+        const ur = re[i+k], ui = im[i+k];
+        const vr = re[i+k+len/2]*wr - im[i+k+len/2]*wi;
+        const vi = re[i+k+len/2]*wi + im[i+k+len/2]*wr;
+        re[i+k] = ur+vr; im[i+k] = ui+vi;
+        re[i+k+len/2] = ur-vr; im[i+k+len/2] = ui-vi;
+      }
+    }
+  }
+}
+
+/* 逆变换：ifft(x) = conj(fft(conj(x))) / N */
+function ifft(re, im){
+  const n = re.length;
+  for(let i=0;i<n;i++) im[i] = -im[i];
+  fft(re, im);
+  for(let i=0;i<n;i++){ re[i] /= n; im[i] = -im[i]/n; }
+}
+
+/* ==========================================================================
+   解析信号（Hilbert 变换）
+   实部 = 原信号，虚部 = 它的 90° 相移版本。
+   x-y 一画，纯音就是标准圆，复合音是稳定闭合的花形 —— 这才是示波器上
+   那种"有感觉"的李萨如；用 s[i]-s[i-D] 近似只能得到勉强像椭圆的形状，
+   而且相位差随音高乱变。
+   输入/输出都是长度 N 的数组；N 必须是 2 的幂。
+   ========================================================================== */
+function analytic(re, im){
+  // 就地：re/im 传入的是时域信号做正变换后的频谱，返回解析信号
+  const n = re.length;
+  fft(re, im);                       // 正变换（输入是实信号，im 全 0）
+  // 单边带：正频率 ×2，负频率清零，DC 与 Nyquist 保持
+  for(let i=1;i<n/2;i++){ re[i] *= 2; im[i] *= 2; }
+  for(let i=n/2+1;i<n;i++){ re[i] = 0; im[i] = 0; }
+  ifft(re, im);
+  return {re, im};
+}
+
+/* ==========================================================================
+   Canvas 渲染
+   ========================================================================== */
+const cWave = document.getElementById("cWave");
+const cSpec = document.getElementById("cSpec");
+const cLiss = document.getElementById("cLiss");
+const cNotes = document.getElementById("cNotes");
+
+/* 画布适配：SS 是超采样倍数（super-sampling）
+   ---------------------------------------------------------------
+   Canvas 2D 的线条是硬边抗锯齿，在 1× 分辨率下曲线边缘仍有台阶感。
+   这里按 SS 倍绘制再交给 CSS 缩放显示，等价于 SSAA —— 曲线明显更圆滑，
+   代价是填充率 ×SS²。李萨如/波形是曲线，用 2×；频谱是矩形柱，1.5× 足够。 */
+function fitCanvas(c, ss){
+  ss = ss || 1.5;
+  const dpr = window.devicePixelRatio || 1;
+  const r = c.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width * dpr * ss));
+  const h = Math.max(1, Math.round(r.height * dpr * ss));
+  if(c.width !== w || c.height !== h){ c.width = w; c.height = h; }
+  return {w, h, dpr: dpr * ss};
+}
+
+function drawWave(){
+  const {w,h,dpr} = fitCanvas(cWave, 2);
+  const g = cWave.getContext("2d");
+  g.clearRect(0,0,w,h);
+  g.strokeStyle = "#26262e"; g.lineWidth = dpr; g.beginPath();
+  for(let k=1;k<8;k++){ const y=h*k/8; g.moveTo(0,y); g.lineTo(w,y); }
+  g.stroke();
+  g.strokeStyle = "#e8d24a"; g.lineWidth = 1.4*dpr;
+  g.shadowColor = "rgba(232,210,74,.30)"; g.shadowBlur = 7*dpr;
+  g.beginPath();
+  for(let i=0;i<512;i++){
+    const x = w*i/511, y = h/2 - state.samples[i]*h*0.42;
+    i? g.lineTo(x,y) : g.moveTo(x,y);
+  }
+  g.stroke();
+  g.shadowBlur = 0;
+  document.getElementById("waveSub").textContent =
+    `${winMs().toFixed(1)} ms / 512 点 · fs=${(fsEff()/1000).toFixed(2)} kHz`;
+}
+
+let specBuf = null;
+function drawSpec(){
+  const {w,h,dpr} = fitCanvas(cSpec);
+  const g = cSpec.getContext("2d");
+  g.clearRect(0,0,w,h);
+  // ★ 多帧累积 FFT：DECIM=1 时单帧 512 点只有 103 Hz/bin，太粗。
+  //   累积最近 4 帧（2048 点）再算，bin 回到 25.7 Hz，谱线清晰得多。
+  //   FFT 每 4 帧算一次（约 25 fps），绘制仍跟随每帧。
+  if(!specBuf){
+    specBuf = {
+      re: new Float32Array(FFT_N), im: new Float32Array(FFT_N),
+      mag: new Float32Array(FFT_N / 2), mx: 1e-9, valid: false,
+      are: null, aim: null
+    };
+  }
+  const {re,im,mag} = specBuf;
+  if(specDirty || !specBuf.valid){
+    for(let i=0;i<FFT_N;i++){ re[i] = fftBuf[i]; im[i] = 0; }
+    fft(re,im);
+    let mx = 1e-9, peakBin = 0, peakVal = 0;
+    for(let i=0;i<FFT_N/2;i++){
+      const m = Math.hypot(re[i],im[i]);
+      mag[i] = m;
+      if(m > mx) mx = m;
+      if(i >= 2 && m > peakVal){ peakVal = m; peakBin = i; }   // 主频峰
+    }
+    specBuf.mx = mx; specBuf.valid = true; specDirty = false;
+    specBuf.peakBin = peakBin; specBuf.peakVal = peakVal;
+
+    // ---- 解析信号（复用同一次正变换的结果，只多做一次逆变换）----
+    if(!specBuf.are){
+      specBuf.are = new Float32Array(FFT_N);
+      specBuf.aim = new Float32Array(FFT_N);
+    }
+    const are = specBuf.are, aim = specBuf.aim;
+    are.set(re); aim.set(im);
+    for(let i=1;i<FFT_N/2;i++){ are[i] *= 2; aim[i] *= 2; }   // 单边带
+    for(let i=FFT_N/2+1;i<FFT_N;i++){ are[i] = 0; aim[i] = 0; }
+    ifft(are, aim);                                            // 时域解析信号
+  }
+  const mx = specBuf.mx;
+  const bh = binHzFFT();                             // fsEff / FFT_N
+  const maxF = Math.min(8000, fsEff()/2);            // 不越过 Nyquist
+  const maxBin = Math.min(FFT_N/2, Math.max(16, Math.floor(maxF / bh)));
+  const N = maxBin, bw = w/N;
+  const grad = g.createLinearGradient(0, h, 0, 0);
+  grad.addColorStop(0, "#e8d24a");
+  grad.addColorStop(1, "#f0a83c");
+  for(let n=0;n<N;n++){
+    const db = 20*Math.log10(Math.max(mag[n]/mx, 1e-6));
+    const hh = Math.max(0, (db + 60)/60) * h*0.92;
+    g.fillStyle = grad;
+    g.fillRect(n*bw + bw*0.1, h-hh, Math.max(1, bw*0.8), hh);
+  }
+  // 参考线：440 / 660 / 880 Hz
+  g.strokeStyle = "rgba(255,255,255,0.14)"; g.lineWidth = dpr;
+  for(const f0 of [440, 660, 880]){
+    const x = (f0 / bh) * bw;
+    if(x < w){ g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+  }
+  // 频率刻度
+  g.fillStyle = "#5c5c6a"; g.font = `${9*dpr}px Consolas,monospace`;
+  g.textAlign = "left";
+  for(const f0 of [0, 1000, 2000, 3000]){
+    const x = (f0 / bh) * bw;
+    if(x >= 0 && x < w - 20) g.fillText(f0 >= 1000 ? (f0/1000)+"k" : f0+"", x, h - 3*dpr);
+  }
+  document.getElementById("specSub").textContent =
+    `${bh.toFixed(1)} Hz/bin · 0-${(maxF/1000).toFixed(1)} kHz`;
+}
+
+/* 李萨如：荧光屏（phosphor）+ 斜二测（oblique）三维投影
+   ---------------------------------------------------------------
+   参考 rschlaikjer/lissajous 与 XaudYo 的 phosphor decay：
+     · 轨迹画在离屏画布上，每帧用 destination-out 按比例擦淡 = 余辉拖尾
+     · 新轨迹用 "lighter" 加色混合，重叠处自然变亮（真实示波器的亮斑）
+     · 每帧只画一小段（LISS_SEG），亮点沿曲线跑
+   3D：斜二测投影（z 轴 45°、长度缩短 0.55），配三根坐标轴 —— 这是
+      工程制图的标准轴测法，平行投影、无透视，立体关系一目了然。
+   拖尾：LISS_DECAY 越大消失越快（0.15 ≈ 0.25 s，0.06 ≈ 0.8 s）。 */
+const LISS_DECAY = 0.13;
+const LISS_SEG   = 0.30;     // 每次画整条曲线的 30%
+const OBL_ANG    = Math.PI / 4;   // 斜二测：z 轴 45°
+const OBL_K      = 0.55;          // 斜二测：z 轴长度缩短
+let lissCanvas = null, lissCtx = null, lissPhase = 0;
+
+/* 李萨如：单通道示波器的经典实现 + 荧光余辉
+   ---------------------------------------------------------------
+   坐标定义（真实，无伪维度）：
+       x = Hilbert 解析信号的实部 = 原信号
+       y = Hilbert 解析信号的虚部 = 原信号的 90° 相移
+   这正是"单通道示波器用 90° 移相网络合成两路输入"的标准做法，
+   对纯音出正圆、对复合音出闭合花纹，和教科书定义严格对应。
+   不引入任何设计者臆造的第三维 —— 数据的每一维都来自硬件采样。 */
+function drawLiss(){
+  const {w,h,dpr} = fitCanvas(cLiss, 2);
+  const g = cLiss.getContext("2d");
+  g.clearRect(0,0,w,h);
+  const cx = w/2, cy = h/2 - 4, amp = Math.min(w,h)*0.40;
+
+  // ---- 背景：参考圆 + 十字（不参与余辉）----
+  g.strokeStyle = "rgba(255,255,255,.06)"; g.lineWidth = dpr;
+  g.beginPath(); g.arc(cx, cy, amp, 0, Math.PI*2); g.stroke();
+  g.strokeStyle = "rgba(255,255,255,.045)";
+  g.beginPath(); g.moveTo(0,cy); g.lineTo(w,cy);
+  g.moveTo(cx,0); g.lineTo(cx,h); g.stroke();
+
+  const A = specBuf && specBuf.are;
+  if(!A){
+    document.getElementById("lissSub").textContent = "等待数据…";
+    return;
+  }
+  const aim = specBuf.aim;
+  const i0 = FFT_N >> 2, i1 = (FFT_N * 3) >> 2, M = i1 - i0;
+
+  // 归一化到最大半径（自动适配音量/衰减）
+  let rmax = 1e-9;
+  for(let i=i0;i<i1;i+=2){
+    const r = Math.hypot(A[i], aim[i]);
+    if(r > rmax) rmax = r;
+  }
+  const k = amp / rmax;
+
+  // ---- 离屏画布（余辉缓冲）----
+  if(!lissCanvas || lissCanvas.width !== w || lissCanvas.height !== h){
+    lissCanvas = document.createElement("canvas");
+    lissCanvas.width = w; lissCanvas.height = h;
+    lissCtx = lissCanvas.getContext("2d");
+  }
+  const L = lissCtx;
+
+  // 拖尾固定 0.8 秒：按显示器刷新间隔换算每帧衰减量，
+  // 让 60 Hz 与 144 Hz 屏上的余辉时长一致。
+  const LISS_TAIL_MS = 800;
+  const decay = 1 - Math.pow(0.05, rafInt / LISS_TAIL_MS);
+
+  // 1) 荧光衰减
+  L.globalCompositeOperation = "destination-out";
+  L.fillStyle = "rgba(0,0,0," + decay.toFixed(4) + ")";
+  L.fillRect(0, 0, w, h);
+
+  // 2) 只画当前扫描段（电子束），其余靠余辉残留；单色，不做渐变
+  L.globalCompositeOperation = "lighter";
+  L.lineJoin = "round";
+  const SEG = Math.max(32, Math.round(M * LISS_SEG));
+  lissPhase = (lissPhase + SEG) % M;
+  const s0 = lissPhase, s1 = Math.min(M, s0 + SEG);
+
+  L.strokeStyle = "rgba(63,182,240,0.85)";
+  L.lineWidth = 1.3*dpr;
+  L.beginPath();
+  for(let i=s0;i<s1;i+=2){
+    const x = cx + A[i0+i]*k, y = cy - aim[i0+i]*k;
+    i>s0 ? L.lineTo(x,y) : L.moveTo(x,y);
+  }
+  L.stroke();
+  // 电子束头
+  if(s1 > s0){
+    const hi = Math.min(M-2, s1-2);
+    L.fillStyle = "rgba(230,248,255,0.95)";
+    L.beginPath();
+    L.arc(cx + A[i0+hi]*k, cy - aim[i0+hi]*k, 2.6*dpr, 0, Math.PI*2);
+    L.fill();
+  }
+  L.globalCompositeOperation = "source-over";
+
+  // 3) 贴到主画布
+  g.drawImage(lissCanvas, 0, 0);
+
+  document.getElementById("lissSub").textContent =
+    `Hilbert 解析信号（信号 vs 90° 相移）· ${FFT_N} 点 · fs=${(fsEff()/1000).toFixed(1)} kHz`;
+}
+
+function drawNotes(){
+  const {w,h,dpr} = fitCanvas(cNotes);
+  const g = cNotes.getContext("2d");
+  g.clearRect(0,0,w,h);
+  const bw = w/12;
+  const labelH = 16*dpr;
+  const plotH = Math.max(1, h - labelH - 4*dpr);
+  const mx = Math.max(1, ...state.noteCounts);
+  for(let i=0;i<12;i++){
+    const v = state.noteCounts[i];
+    const hh = Math.min(plotH, (v/mx) * plotH);
+    g.fillStyle = v>0 ? "#3fb6f0" : "#2a2a38";
+    g.fillRect(i*bw + bw*0.2, plotH - hh + 2*dpr, bw*0.6, hh);
+    g.fillStyle = "#7a7a8a"; g.font = `${9*dpr}px "Microsoft YaHei"`;
+    g.textAlign = "center";
+    g.fillText(NOTE_NAMES[i], i*bw + bw/2, h - 4*dpr);
+  }
+}
+
+/* ---- 绘制入口（数据驱动；rAF 只做兜底与统计）---- */
+let lastDrawT = performance.now();
+let lastCanvasT = 0;
+let rafInt = 16.7, lastRafT = 0;   // 显示器刷新间隔（由 loop 自适应更新）
+function drawAll(){
+  // 键盘是轻量 DOM 操作，每帧都跟，保证按键反馈最跟手
+  drawKeyboard();
+  const now = performance.now();
+  // canvas 跟随显示器刷新率上限（60 Hz→16.7 ms，144 Hz→6.9 ms，自适应）
+  if(now - lastCanvasT < rafInt * 0.85) return;
+  lastCanvasT = now;
+  lastDrawT = now;
+  drawWave(); drawSpec(); drawLiss(); drawNotes();
+}
+
+/* ---- 主循环：测显示器刷新间隔 + 兜底重绘 + fps 统计 ---- */
+function loop(){
+  requestAnimationFrame(loop);
+  const now = performance.now();
+  // 用 rAF 间隔估计真实刷新率（60 Hz≈16.7ms，144 Hz≈6.9ms）
+  if(lastRafT){
+    const dt = now - lastRafT;
+    if(dt > 2 && dt < 120) rafInt = rafInt * 0.9 + dt * 0.1;
+  }
+  lastRafT = now;
+  // 200 ms 没有新帧也重绘一次，保证静音/断线时画面不残留
+  if(now - lastDrawT > 200) drawAll();
+  state._fpsN++;
+  if(now - state._fpsT > 500){
+    state.fps = state._fpsN*1000/(now-state._fpsT);
+    state._fpsN = 0; state._fpsT = now;
+    document.getElementById("fps").textContent =
+      state.fps.toFixed(0) + " fps 渲染 · " + state.dataFps.toFixed(1) + " fps 数据 · "
+      + (1000/rafInt).toFixed(0) + " Hz 屏";
+  }
+}
+
+/* ---- 更新文字读数 ---- */
+function updateReadouts(){
+  const L = state.lat;
+  const ms = v => (v/CLK_HZ*1e3);
+  const big = document.getElementById("latBig");
+  const sub = document.getElementById("latSub");
+  const sub2 = document.getElementById("latSub2");
+  if(!L.valid || L.cnt === 0){
+    big.textContent = "—— ms";
+    big.classList.remove("low");
+    big.style.color = "#7a7a8a";
+    sub.textContent = "等待第一次触摸…";
+    sub2.textContent = "";
+  } else {
+    const last = ms(L.last);
+    const min  = (L.min===0xFFFFFFFF) ? last : ms(L.min);
+    const max  = ms(L.max);
+    const avg  = ms(L.sum>>>0)/Math.max(1,L.cnt);
+    big.textContent = last.toFixed(3) + " ms";
+    big.style.color = "";
+    big.classList.toggle("low", last <= 5);
+    sub.textContent = `min ${min.toFixed(2)} · avg ${avg.toFixed(2)} · max ${max.toFixed(2)} ms`;
+    sub2.textContent = `抖动 ${(max-min).toFixed(3)} ms · n=${L.cnt}`;
+  }
+  const total = state.noteCounts.reduce((a,b)=>a+b,0);
+  document.getElementById("footR").textContent = total + " 次按键";
+  document.getElementById("noteCap").textContent = `12 音按键次数（PC 端统计，共 ${total} 次）`;
+  document.getElementById("footL").textContent =
+    `帧 ${state.frames} · 异常 ${state.framesBad} · 收到 ${(state.bytesTotal/1024).toFixed(1)} KB`;
+}
+
+/* ---- 键盘 ---- */
+const kb = document.getElementById("kb");
+const keyEls = [];
+(function buildKeyboard(){
+  const black = new Set([1,3,6,8,10]);
+  for(let i=0;i<12;i++){
+    const d = document.createElement("div");
+    d.className = "key " + (black.has(i) ? "b" : "w");
+    d.textContent = NOTE_NAMES[i];
+    d.dataset.note = i;
+    kb.appendChild(d);
+    keyEls[i] = d;
+  }
+})();
+function drawKeyboard(){
+  for(let i=0;i<12;i++){
+    keyEls[i].classList.toggle("on", !!(state.keys & (1<<i)));
+  }
+}
+
+function setStatus(txt, ok){
+  const el = document.getElementById("status");
+  el.textContent = txt;
+  el.className = "status " + (ok ? "ok" : "bad");
+}
+
+/* ---- 事件 ---- */
+let lastUserTimbre = 0;
+document.getElementById("btnBridge").onclick = connectBridge;
+document.getElementById("btnConn").onclick = ()=>connectSerial(false);
+document.getElementById("btnReplay").onclick = startReplay;
+document.getElementById("btnFake").onclick = ()=>{
+  stopAll();
+  state.noteCounts = new Array(12).fill(0);
+  startFake();
+};
+document.getElementById("timbre").onchange = (e)=>{
+  lastUserTimbre = performance.now();
+  const w = e.target.selectedIndex;
+  state.timbre = w;
+  if(w > 5){                      // 「正弦波(测试)」只用于模拟模式，固件不认
+    setStatus("该档位仅用于模拟模式", false);
+    return;
+  }
+  const cmd = new Uint8Array([0xA5, 0x01, w]);
+  if(port && port.writable){                       // Web Serial 直连
+    const wr = port.writable.getWriter();
+    wr.write(cmd).finally(()=>wr.releaseLock());
+    setStatus("音色命令已发送（串口）", true);
+  } else if(state.mode === "bridge"){              // 本地桥接下行
+    fetch("/cmd", {method:"POST", body: cmd})
+      .then(r=>r.json())
+      .then(j=>setStatus(j.ok ? "音色命令已发送（桥接）"
+                              : "音色命令失败：" + (j.error || "未知"), !!j.ok))
+      .catch(err=>setStatus("音色命令失败：" + err.message, false));
+  } else {
+    setStatus("未连接，音色命令没有发出去", false);
+  }
+};
+
+requestAnimationFrame(loop);
+if(!("serial" in navigator)){
+  setStatus("此浏览器没有 Web Serial —— 请点「连接桥接」", false);
+} else {
+  setStatus("未连接（点「连接桥接」最省事，无需授权）", false);
+}
+
+/* ---- URL 参数 ---- */
+const qs = new URLSearchParams(location.search);
+if(qs.get("fake") === "1") startFake();
+if(qs.get("replay") !== null) startReplay();
+if(qs.get("bridge") === "1") connectBridge();
+
+function autoSerial(){
+  if(!("serial" in navigator)){
+    setStatus("此浏览器没有 Web Serial，请用「连接桥接」", false);
+    return;
+  }
+  navigator.serial.getPorts().then(ps=>{
+    if(ps && ps.length) connectSerial(true);
+    else setStatus("没有已授权串口 —— 点「连接桥接」无需授权", false);
+  }).catch(()=>{});
+}
+
+// auto=1：先试本机桥接（无授权），再退回 Web Serial 已授权端口
+if(qs.get("auto") === "1"){
+  fetch("/info", {cache:"no-store"})
+    .then(r=>r.json())
+    .then(info=>{ if(info && info.serial_ok) return connectBridge(); autoSerial(); })
+    .catch(()=>autoSerial());
+}
+</script>
+</body>
+</html>

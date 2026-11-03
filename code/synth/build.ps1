@@ -15,7 +15,7 @@
         This script always emits that option.
 #>
 param(
-    [ValidateSet('tone_test', 'chord_demo', 'synth_board12', 'synth_board', 'self_test_12notes', 'self_test_square', 'synth_ttp229', 'ttp229_debug', 'self_test_uart')]
+    [ValidateSet('tone_test', 'chord_demo', 'synth_board12', 'synth_board', 'self_test_12notes', 'self_test_square', 'synth_ttp229', 'synth_ttp229_quiet', 'ttp229_debug', 'self_test_uart', 'self_test_flute', 'self_test_organ', 'self_test_marimba', 'self_test_ks')]
     [string]$Target = 'tone_test',
 
     [ValidateSet('none', 'sram', 'flash')]
@@ -81,6 +81,26 @@ $targets = @{
         Cst = 'synth_board.cst'
     }
     # Minimal bring-up self test: auto-cycles 12 piano notes, no keys/IR needed
+    'self_test_ks' = @{
+        Top = 'self_test_ks'
+        Rtl = @('i2s_tx.v', 'note_table.v', 'karplus_strong.v', 'self_test_ks.v')
+        Cst = 'tone_test.cst'
+    }
+    'self_test_marimba' = @{
+        Top = 'self_test_marimba'
+        Rtl = @('i2s_tx.v', 'note_table.v', 'piano_engine.v', 'self_test_marimba.v')
+        Cst = 'tone_test.cst'
+    }
+    'self_test_organ' = @{
+        Top = 'self_test_organ'
+        Rtl = @('i2s_tx.v', 'note_table.v', 'piano_engine.v', 'self_test_organ.v')
+        Cst = 'tone_test.cst'
+    }
+    'self_test_flute' = @{
+        Top = 'self_test_flute'
+        Rtl = @('i2s_tx.v', 'note_table.v', 'piano_engine.v', 'self_test_flute.v')
+        Cst = 'tone_test.cst'
+    }
     'self_test_12notes' = @{
         Top = 'self_test_12notes'
         Rtl = @('i2s_tx.v', 'note_table.v', 'piano_engine.v', 'self_test_12notes.v')
@@ -98,7 +118,17 @@ $targets = @{
         Rtl = @('clk_div.v', 'debounce.v', 'key_scan.v', 'ir_gesture.v', 'i2s_tx.v',
                 'note_table.v', 'adsr.v', 'osc_voice.v', 'oscillator_array.v',
                 'note_alloc.v', 'mix_tree.v', 'piano_engine.v', 'synth_top.v',
-                'ttp229_scan.v', 'uart_stream.v', 'uart_rx.v', 'ui_cmd.v', 'synth_ttp229_top.v')
+                'ttp229_scan.v', 'uart_stream.v', 'uart_rx.v', 'ui_cmd.v', 'karplus_strong.v', 'ks_array.v', 'latency_meter.v', 'synth_ttp229_top.v')
+        Cst = 'synth_ttp229.cst'
+    }
+    # Same as synth_ttp229 but DAC data stuck at 0 -> silent bench firmware.
+    # Touch / latency / UART frames still fully live for web-UI bring-up.
+    'synth_ttp229_quiet' = @{
+        Top = 'synth_ttp229_quiet_top'
+        Rtl = @('clk_div.v', 'debounce.v', 'key_scan.v', 'ir_gesture.v', 'i2s_tx.v',
+                'note_table.v', 'adsr.v', 'osc_voice.v', 'oscillator_array.v',
+                'note_alloc.v', 'mix_tree.v', 'piano_engine.v', 'synth_top.v',
+                'ttp229_scan.v', 'uart_stream.v', 'uart_rx.v', 'ui_cmd.v', 'karplus_strong.v', 'ks_array.v', 'latency_meter.v', 'synth_ttp229_top.v', 'synth_ttp229_quiet_top.v')
         Cst = 'synth_ttp229.cst'
     }
     # TTP229 bit-mapping debug: press a key, LEDs show its bit number

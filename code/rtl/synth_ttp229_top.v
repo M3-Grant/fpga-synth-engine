@@ -25,19 +25,19 @@
 //  ⚠ 若实测发现方向相反（低音在高位），把表改成 15,14,13...4 即可。
 // ============================================================================
 module synth_ttp229_top #(
-    parameter VOICE_NUM  = 4,
+    parameter VOICE_NUM  = 4,   // 4 声部（6 声部会超出 GW2AR-18 的寄存器资源）
     parameter NOTE_BITS  = 5,
     parameter BCK_HALF   = 4,
     parameter KEY_NUM    = 12,
-    parameter KEY_CNT_MAX= 270_000,       // 按键消抖 10 ms
+    parameter KEY_CNT_MAX= 135_000,       // 按键消抖 5 ms（只改消抖，扫描保持 20ms）
     parameter IR_DEBOUNCE_CNT  = 540_000,   // 红外消抖 20 ms
     parameter IR_MIN_SWIPE_CNT = 2_160_000, // 挥手最短 80 ms
     parameter IR_MAX_SWIPE_CNT = 32_400_000,// 挥手最长 1200 ms
     // TTP229 时序（仿真时可缩短，上板保持默认 200µs/500kHz/20ms）
     parameter TTP_SYNC_CNT = 5_400,
     parameter TTP_SCL_HALF = 27,
-    parameter TTP_GAP_CNT  = 540_000,
-    parameter TTP_ACTIVE_LOW = 1          // TTP229 输出 0=按下，必须取反
+    parameter TTP_GAP_CNT  = 540_000,      // 20 ms
+    parameter TTP_ACTIVE_LOW = 1           // TTP229 输出 0=按下，必须取反
 )(
     input  wire        clk,        // 27 MHz，引脚 4
     input  wire        ir_in,      // 红外避障模块（低 = 有手），引脚 74
@@ -81,8 +81,10 @@ module synth_ttp229_top #(
         .sdo       (ttp_sdo),
         .scl       (ttp_scl),
         .key_state (ttp_keys),
-        .key_valid (ttp_valid)
+        .key_valid (ttp_valid),
+        .scan_start(ttp_scan_start)
     );
+    wire ttp_scan_start;
 
     // ==================================================================
     // 3. 16 位 → 12 个音（位映射表）
@@ -163,7 +165,7 @@ module synth_ttp229_top #(
         .MIN_SWIPE_CNT (IR_MIN_SWIPE_CNT),
         .MAX_SWIPE_CNT (IR_MAX_SWIPE_CNT),
         .INIT_SEL      (3'b100),         // 复位默认：钢琴
-        .N_COLORS      (5)
+        .N_COLORS      (6)          // 三角/方波/锯齿/脉冲/钢琴/拨弦
     ) u_ir (
         .clk           (clk),
         .rst_n         (rst_n),
@@ -184,7 +186,7 @@ module synth_ttp229_top #(
 
     uart_rx #(
         .CLK_HZ (27_000_000),
-        .BAUD   (115200)
+        .BAUD   (921_600)      // 必须与上行 uart_stream 一致，否则 UI 下行命令解不出来
     ) u_ui_rx (
         .clk   (clk),
         .rst_n (rst_n),
@@ -214,7 +216,8 @@ module synth_ttp229_top #(
         .PHASE_BITS (32),
         .BCK_HALF   (BCK_HALF),
         .AMP        (16'sh3000),
-        .NOTE_BITS  (NOTE_BITS)
+        .NOTE_BITS  (NOTE_BITS),
+        .USE_KS     (1)                // 钢琴档改用 Karplus-Strong 拨弦
     ) u_synth (
         .clk            (clk),
         .rst_n          (rst_n),
@@ -237,10 +240,139 @@ module synth_ttp229_top #(
     wire        i2s_sample_req;
     wire signed [15:0] i2s_audio_out;
 
+    // ==================================================================
+    // 6c. 演奏延迟统计（按键事件 → 开始发声）
+    //     key_evt  : key_scan 的 note_valid 脉冲
+    //     sound_evt: voice_busy 的上升沿（某个声部开始发声）
+    // ==================================================================
+    // 终点改用 note_valid（消抖完成，等价于"即将发声"）。
+    //   之前用 voice_busy 上升沿，但钢琴/吉他有衰减尾巴，voice_busy
+    //   会长期保持 1，导致只有第一次按键能触发测量 —— n 不再增长。
+    wire sound_evt = note_valid;
+
+    wire [31:0] lat_last, lat_min, lat_max, lat_sum;
+    wire [15:0] lat_cnt;
+
+    // 采用队友的 latency_meter：终点用"音频帧起点(LRCK 上升沿)"，
+    // 而不是"消抖完成"——这样测出来的值包含帧对齐（0~19 µs 随机），
+    // 不再是死板的恒定值。
+    reg  lrck_d;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) lrck_d <= 1'b0;
+        else        lrck_d <= i2s_lrck;
+    end
+    wire frame_tick   = i2s_lrck & ~lrck_d;              // LRCK 上升沿
+
+    // 起点必须是"有新的键按下"的那一次扫描，而不是"有键按着"的电平。
+    //   旧写法 (|(~ttp_keys)) 在按住不放时每 20 ms 都会置 1，导致 t0 被反复
+    //   刷新，下一个新键到来时拿一个很旧的 t0 去配对 —— 实测出现过 45 ms 的
+    //   假延迟（HANDOFF §8.3 那条怀疑的真正原因）。
+    //   TTP229 低有效：~ttp_keys = 1 表示该位按下。
+    reg [15:0] ttp_prev;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)          ttp_prev <= 16'hFFFF;       // 上电默认全没按
+        else if (ttp_valid)  ttp_prev <= ttp_keys;
+    end
+    wire new_press = ttp_valid && (|((~ttp_keys) & ttp_prev));
+    wire touch_evt    = new_press;                       // 有新键按下
+    wire note_on_evt  = note_valid & note_on;
+
+    wire [255:0] hist_flat;
+    wire [31:0]  scan_period;
+
+    latency_meter #(
+        .HIST_BINS (16),
+        .BIN_SHIFT (16),
+        .TIMEOUT   (1_350_000)
+    ) u_lat (
+        .clk         (clk),
+        .rst_n       (rst_n),
+        .touch_evt   (touch_evt),
+        .note_on_evt (note_on_evt),
+        .frame_tick  (frame_tick),
+        .scan_tick   (ttp_valid),
+        .lat_last    (lat_last),
+        .lat_min     (lat_min),
+        .lat_max     (lat_max),
+        .lat_sum     (lat_sum),
+        .lat_cnt     (lat_cnt),
+        .hist_flat   (hist_flat),
+        .scan_period (scan_period)
+    );
+
+    // hist_flat（256 位）拆成 16 个 16 位给 uart_stream
+    wire [15:0] h0  = hist_flat[  0 +: 16];
+    wire [15:0] h1  = hist_flat[ 16 +: 16];
+    wire [15:0] h2  = hist_flat[ 32 +: 16];
+    wire [15:0] h3  = hist_flat[ 48 +: 16];
+    wire [15:0] h4  = hist_flat[ 64 +: 16];
+    wire [15:0] h5  = hist_flat[ 80 +: 16];
+    wire [15:0] h6  = hist_flat[ 96 +: 16];
+    wire [15:0] h7  = hist_flat[112 +: 16];
+    wire [15:0] h8  = hist_flat[128 +: 16];
+    wire [15:0] h9  = hist_flat[144 +: 16];
+    wire [15:0] h10 = hist_flat[160 +: 16];
+    wire [15:0] h11 = hist_flat[176 +: 16];
+    wire [15:0] h12 = hist_flat[192 +: 16];
+    wire [15:0] h13 = hist_flat[208 +: 16];
+    wire [15:0] h14 = hist_flat[224 +: 16];
+    wire [15:0] h15 = hist_flat[240 +: 16];
+    wire lat_valid = (lat_cnt != 16'd0);
+
+    // ==================================================================
+    // 6d. 12 音按键计数（替代没意义的延迟直方图，做演示统计）
+    // ==================================================================
+    reg [15:0] nc0, nc1, nc2, nc3, nc4, nc5;
+    reg [15:0] nc6, nc7, nc8, nc9, nc10, nc11;
+
+    // 用消抖后的 key_state 上升沿计数（不依赖 note_valid 的时序，
+    // 上一版用 note_valid & note_on，被综合工具判成不可达，整个块被优化掉了）
+    reg [KEY_NUM-1:0] key_prev;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) key_prev <= {KEY_NUM{1'b0}};
+        else        key_prev <= key_state;
+    end
+    wire [KEY_NUM-1:0] key_rise = key_state & ~key_prev;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            nc0 <= 16'd0; nc1 <= 16'd0; nc2 <= 16'd0; nc3 <= 16'd0;
+            nc4 <= 16'd0; nc5 <= 16'd0; nc6 <= 16'd0; nc7 <= 16'd0;
+            nc8 <= 16'd0; nc9 <= 16'd0; nc10<= 16'd0; nc11<= 16'd0;
+        end
+        else begin
+            if (key_rise[0])  nc0  <= nc0  + 16'd1;
+            if (key_rise[1])  nc1  <= nc1  + 16'd1;
+            if (key_rise[2])  nc2  <= nc2  + 16'd1;
+            if (key_rise[3])  nc3  <= nc3  + 16'd1;
+            if (key_rise[4])  nc4  <= nc4  + 16'd1;
+            if (key_rise[5])  nc5  <= nc5  + 16'd1;
+            if (key_rise[6])  nc6  <= nc6  + 16'd1;
+            if (key_rise[7])  nc7  <= nc7  + 16'd1;
+            if (key_rise[8])  nc8  <= nc8  + 16'd1;
+            if (key_rise[9])  nc9  <= nc9  + 16'd1;
+            if (key_rise[10]) nc10 <= nc10 + 16'd1;
+            if (key_rise[11]) nc11 <= nc11 + 16'd1;
+        end
+    end
+
+    // ------------------------------------------------------------------
+    // 活跃声部数（真正的 popcount，不是"有没有声部忙"）
+    //   旧写法 {2'b00, (|dbg_voice_busy)} 只发 1 位，上位机永远只看到 0/1，
+    //   复音显示是假的。这里按 VOICE_NUM 参数化求和。
+    // ------------------------------------------------------------------
+    reg [2:0] voice_cnt;
+    integer   vci;
+    always @(*) begin
+        voice_cnt = 3'd0;
+        for (vci = 0; vci < VOICE_NUM; vci = vci + 1)
+            voice_cnt = voice_cnt + {2'b00, dbg_voice_busy[vci]};
+    end
+
     uart_stream #(
         .CLK_HZ (27_000_000),
-        .BAUD   (115200),
-        .DECIM  (7)
+        .BAUD   (921_600),      // CH340 上限档；BAUD_DIV=29，误差 +1.0%
+        .DECIM  (1)             // 采样窗口 9.7 ms -> 帧率 ~103 fps（原 7/115200 -> 14.7 fps）
     ) u_uart (
         .clk        (clk),
         .rst_n      (rst_n),
@@ -248,9 +380,19 @@ module synth_ttp229_top #(
         .audio      (i2s_audio_out),
         .keys       (key_state),
         .timbre     (wave_sel),
-        .voices     ({2'b00, (|dbg_voice_busy)}),
+        .voices     (voice_cnt),
         .uart_tx    (uart_tx_line),
-        .frame_busy (frame_busy)
+        .frame_busy (frame_busy),
+        .lat_last   (lat_last),
+        .lat_min    (lat_min),
+        .lat_max    (lat_max),
+        .lat_sum    (lat_sum),
+        .lat_cnt    (lat_cnt),
+        .lat_valid  (lat_valid),
+        .hist0  (nc0),  .hist1  (nc1),  .hist2  (nc2),  .hist3  (nc3),
+        .hist4  (nc4),  .hist5  (nc5),  .hist6  (nc6),  .hist7  (nc7),
+        .hist8  (nc8),  .hist9  (nc9),  .hist10 (nc10), .hist11 (nc11),
+        .hist12 (16'd0), .hist13 (16'd0), .hist14 (16'd0), .hist15 (16'd0)
     );
 
     wire uart_tx_line;

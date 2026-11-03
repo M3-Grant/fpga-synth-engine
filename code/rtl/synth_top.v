@@ -33,6 +33,7 @@
 module synth_top #(
     parameter VOICE_NUM  = 4,          // 复音数（改这里即可扩复音）
     parameter PHASE_BITS = 32,
+    parameter USE_KS     = 0,      // 1 = 钢琴档改用 Karplus-Strong 拨弦
     parameter BCK_HALF   = 4,          // I2S BCK 半周期，决定 fs = 52734.375 Hz
     parameter AMP        = 16'sh2000,  // 单声部幅度
     parameter NOTE_BITS  = 5           // 音符索引位宽（0~24）
@@ -195,9 +196,33 @@ module synth_top #(
     //             4 声部最坏 30908 < 65536，不会溢出。
     //    · 钢琴  ：piano_engine 内部已归一化并饱和
     // ==================================================================
+    // ------------------------------------------------------------------
+    // Karplus-Strong 拨弦通路（USE_KS=1 时替换钢琴档）
+    //   参数已冻结：(a+3b)/4 低通、三级低通激励、1/4 幅度、0.984 衰减
+    // ------------------------------------------------------------------
+    wire signed [15:0] ks_audio;
+
+    ks_array #(
+        .VOICE_NUM   (VOICE_NUM),
+        .PHASE_BITS  (PHASE_BITS),
+        .DEPTH_LOG2  (9),
+        .DECAY_SHIFT (6)
+    ) u_ks (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .sample_req (sample_req),
+        .voice_note (voice_note),
+        .voice_trig (voice_trig),
+        .voice_busy (voice_busy),
+        .audio      (ks_audio)
+    );
     wire piano_mode = (wave_sel == 3'b100);
 
-    wire signed [15:0] audio_out = piano_mode ? piano_audio : mix_out[15:0];
+    // 音色选择（6 档）：0~3 老波形，4 钢琴（加法合成），5 拨弦（Karplus-Strong）
+    wire ks_mode = (wave_sel == 3'b101);
+    wire signed [15:0] audio_out = piano_mode ? piano_audio :
+                                   ks_mode    ? ks_audio    :
+                                                mix_out[15:0];
 
     // 引出给串口帧（dbg_ 端口，不接也不影响功能）
     assign dbg_sample_req = sample_req;

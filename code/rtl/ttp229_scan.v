@@ -47,7 +47,8 @@ module ttp229_scan #(
     input  wire                 sdo,        // 来自模块的数据位
     output reg                  scl,        // 送往模块的读时钟
     output reg  [KEY_NUM-1:0]   key_state,  // 1 = 该键被触摸
-    output reg                  key_valid   // 一轮读数完成的单周期脉冲
+    output reg                  key_valid,  // 一轮读数完成的单周期脉冲
+    output reg                  scan_start  // 每轮扫描开始时的单周期脉冲（延迟测量用）
 );
 
     localparam S_IDLE = 3'd0;
@@ -69,10 +70,13 @@ module ttp229_scan #(
             shift     <= {KEY_NUM{1'b0}};
             scl       <= 1'b1;
             key_state <= {KEY_NUM{1'b0}};
-            key_valid <= 1'b0;
+            scan_start <= 1'b0;
+            key_valid  <= 1'b0;
+            scan_start <= 1'b0;
         end
         else begin
-            key_valid <= 1'b0;
+            key_valid  <= 1'b0;
+            scan_start <= 1'b0;
 
             case (state)
                 // ---- 空闲：SCL 高，等待扫描间隔 ----
@@ -80,7 +84,8 @@ module ttp229_scan #(
                     scl <= 1'b1;
                     if (cnt >= GAP_CNT) begin
                         cnt   <= 24'd0;
-                        state <= S_SYNC;
+                        state      <= S_SYNC;
+                scan_start <= 1'b1;      // 新一轮扫描开始（延迟测量的起点）
                     end
                     else cnt <= cnt + 24'd1;
                 end

@@ -67,7 +67,8 @@ $suites = [ordered]@{
         out = 'sim_synth.out'
         src = @("${R}clk_div.v", "${R}i2s_tx.v", "${R}note_table.v", "${R}adsr.v",
                 "${R}osc_voice.v", "${R}oscillator_array.v", "${R}note_alloc.v",
-                "${R}mix_tree.v", "${R}piano_engine.v", "${R}synth_top.v", "${S}synth_top.v")
+                "${R}mix_tree.v", "${R}piano_engine.v", "${R}karplus_strong.v",
+                "${R}ks_array.v", "${R}synth_top.v", "${S}synth_top.v")
     }
     'tone_test' = @{
         out = 'sim_tone.out'
@@ -77,8 +78,9 @@ $suites = [ordered]@{
         out = 'sim_board.out'
         src = @("${R}clk_div.v", "${R}debounce.v", "${R}i2s_tx.v", "${R}note_table.v",
                 "${R}adsr.v", "${R}osc_voice.v", "${R}oscillator_array.v",
-                "${R}note_alloc.v", "${R}mix_tree.v", "${R}piano_engine.v", "${R}synth_top.v",
-                "${R}synth_board_top.v", "${S}synth_board.v")
+                "${R}note_alloc.v", "${R}mix_tree.v", "${R}piano_engine.v",
+                "${R}karplus_strong.v", "${R}ks_array.v",
+                "${R}synth_top.v", "${R}synth_board_top.v", "${S}synth_board.v")
     }
     'led_ctrl_top' = @{
         out = 'sim_led.out'
@@ -98,7 +100,8 @@ $suites = [ordered]@{
         src = @("${R}clk_div.v", "${R}debounce.v", "${R}key_scan.v", "${R}i2s_tx.v",
                 "${R}note_table.v", "${R}adsr.v", "${R}osc_voice.v",
                 "${R}oscillator_array.v", "${R}note_alloc.v", "${R}mix_tree.v",
-                "${R}piano_engine.v", "${R}synth_top.v", "${R}ir_gesture.v",
+                "${R}piano_engine.v", "${R}karplus_strong.v", "${R}ks_array.v",
+                "${R}synth_top.v", "${R}ir_gesture.v",
                 "${R}synth_board12_top.v",
                 "${S}synth_board12.v")
     }
@@ -119,7 +122,9 @@ $suites = [ordered]@{
         src = @("${R}clk_div.v", "${R}debounce.v", "${R}key_scan.v", "${R}ir_gesture.v",
                 "${R}i2s_tx.v", "${R}note_table.v", "${R}adsr.v", "${R}osc_voice.v",
                 "${R}oscillator_array.v", "${R}note_alloc.v", "${R}mix_tree.v",
-                "${R}piano_engine.v", "${R}synth_top.v", "${R}ttp229_scan.v",
+                "${R}piano_engine.v", "${R}karplus_strong.v", "${R}ks_array.v",
+                "${R}synth_top.v", "${R}ttp229_scan.v", "${R}uart_stream.v",
+                "${R}uart_rx.v", "${R}ui_cmd.v", "${R}latency_meter.v",
                 "${R}synth_ttp229_top.v", "${S}synth_ttp229.v")
     }
 }

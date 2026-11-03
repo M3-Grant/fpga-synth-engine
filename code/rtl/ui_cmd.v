@@ -42,9 +42,17 @@ module ui_cmd #(
             ui_active <= 1'b0;        // 上电交给红外
         end
         else begin
-            // 挥手优先：硬件动作立刻接管
+            // 优先级：UI 最高（2026-11-03 用户要求改）
+            //   旧逻辑里 clr_i（红外挥手）会把 ui_active 清零，结果是
+            //   "UI 选了三角波，一按键（手在红外前晃）就跳回红外音色"。
+            //   现在 UI 一旦下发过命令就锁住，红外不再能夺回控制权；
+            //   只有复位才回到红外控制。
+            //   注意：clr_i 端口保留是为了协议兼容与将来可选的"松手释放"，
+            //   当前不参与任何逻辑。
+            /*
             if (clr_i)
                 ui_active <= 1'b0;
+            */
 
             if (rx_valid) begin
                 case (state)
@@ -59,7 +67,7 @@ module ui_cmd #(
 
                     S_ARG: begin
                         // 只有"设置音色"命令且参数在 0..4 才接受
-                        if (cmd == CMD_WAVE && rx_data <= 8'd4) begin
+                        if (cmd == CMD_WAVE && rx_data <= 8'd5) begin   // 0~5：三角/方波/锯齿/脉冲/钢琴/吉他
                             ui_wave   <= rx_data[2:0];
                             ui_active <= 1'b1;
                         end
