@@ -53,6 +53,9 @@ module synth_top #(
     //               踩着踏板松手时，包络要走慢衰减而不是停在满音量
     input  wire                    sustain,
     input  wire [11:0]             key_state,
+    // ---- 弱音踏板（IR#2，2026-11-04）----
+    //   1 = 踩下：整体音量降到 1/4（-12 dB），模拟钢琴的 una corda 弱音
+    input  wire                    soft_pedal,
     // ---- 音色控制 ----
     input  wire [2:0]              wave_sel,  // 音色：000三角 001方波 010锯齿 011脉冲 100钢琴
     // ---- I2S 输出 ----
@@ -254,9 +257,12 @@ module synth_top #(
     );
 
     // 音色选择：0~3 老波形（osc_voice→mix_tree），4 钢琴（加法合成），5 吉他（KS）
-    wire signed [15:0] audio_out = piano_mode ? piano_audio :
+    wire signed [15:0] audio_raw = piano_mode ? piano_audio :
                                    ks_mode    ? ks_audio  :
                                                 mix_out[15:0];
+
+    // 弱音踏板（IR#2）：整体 -12 dB。放在最后一级，所有音色都吃得到。
+    wire signed [15:0] audio_out = soft_pedal ? (audio_raw >>> 2) : audio_raw;
 
     // 引出给串口帧（dbg_ 端口，不接也不影响功能）
     assign dbg_sample_req = sample_req;

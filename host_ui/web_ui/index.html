@@ -140,7 +140,7 @@
   </header>
 
   <div class="grid">
-    <div class="card hero"><span class="title">李萨如图形（信号 vs 90° 相移 · Hilbert）</span>
+    <div class="card hero"><span class="title">李萨如图形（橙色 = 该音色的代表轨迹，暂留）</span>
       <span class="sub" id="lissSub"></span><canvas id="cLiss"></canvas></div>
     <div class="card spec"><span class="title">实时频谱</span>
       <span class="sub" id="specSub"></span><canvas id="cSpec"></canvas></div>
@@ -228,13 +228,20 @@ function startFake(){
       if(tbr === 3) return ph < 0.1 ? 0.8 : -0.09;     // 脉冲
       return Math.sin(2*Math.PI*ph);                   // 正弦
     }
+    // 演示包络：每秒"重按"一次，起音 40 ms + 指数衰减。
+    // 这样峰值保持波形能看到"冲击 → 衰减 → 下一次冲击"，
+    // 而不是一条恒幅平线（李萨如时代看不出的东西，正是要展示的）。
+    const env = Math.min(1, fakeT / 0.04) * Math.exp(-fakeT * 2.2);
     for(let i=0;i<512;i++){
       const t = fakeT + i/FS_AUDIO;
       let v = 0;
       for(const f0 of FREQS){
         const ph = (t*f0) % 1;
-        if(tbr === 4){          // 钢琴：6 谐波
-          for(let h=1;h<=6;h++) v += 0.32*Math.sin(2*Math.PI*f0*h*t)/Math.pow(h,1.5);
+        if(tbr === 4){          // 钢琴：6 谐波（高次附加更快的独立衰减）
+          for(let h=1;h<=6;h++){
+            const he = Math.exp(-fakeT * (1.2 + h*0.9));   // 高次掉得快
+            v += 0.32*Math.sin(2*Math.PI*f0*h*t)/Math.pow(h,1.0) * he;
+          }
         } else if(tbr === 5){   // 吉他：基波 + 弱泛音
           v += 0.36*Math.sin(2*Math.PI*f0*t)
              + 0.10*Math.sin(2*Math.PI*f0*2*t)
@@ -243,7 +250,7 @@ function startFake(){
           v += 0.42*oneTone(tbr, ph);
         }
       }
-      state.samples[i] = v;
+      state.samples[i] = v * env;
     }
     fakeT += 512/FS_AUDIO;
     fakeT %= 1.0;          // 回绕到 1 秒内，避免 t*440 的浮点精度损失
@@ -251,6 +258,7 @@ function startFake(){
     if(state.frames % 45 === 0) state.noteCounts[0]++;
     state.bytesTotal += FRAME_LEN;
     state.frames++;
+    phPush();                 // 峰值包络历史（模拟模式也要走这条路）
     state.lat.last = 175500;      // 6.5 ms
     state.lat.min = 170000;
     state.lat.max = 180000;
@@ -316,6 +324,7 @@ function handleFrame(f){
   for(let i=0;i<12;i++) if(rise & (1<<i)) state.noteCounts[i]++;
   state.keysPrev = state.keys;
   state.frames++;
+  phPush();                 // 峰值包络历史（每帧一个桶）
   // 数据帧率
   const now = performance.now();
   if(!state._dfT){ state._dfT = now; state._dfN = 0; }
@@ -677,20 +686,154 @@ function drawSpec(){
     `${bh.toFixed(1)} Hz/bin · 0-${(maxF/1000).toFixed(1)} kHz`;
 }
 
-/* 李萨如：荧光屏（phosphor）+ 斜二测（oblique）三维投影
+/* 峰值保持波形（2026-11-04，替代李萨如作为主视图）
    ---------------------------------------------------------------
-   参考 rschlaikjer/lissajous 与 XaudYo 的 phosphor decay：
-     · 轨迹画在离屏画布上，每帧用 destination-out 按比例擦淡 = 余辉拖尾
-     · 新轨迹用 "lighter" 加色混合，重叠处自然变亮（真实示波器的亮斑）
-     · 每帧只画一小段（LISS_SEG），亮点沿曲线跑
-   3D：斜二测投影（z 轴 45°、长度缩短 0.55），配三根坐标轴 —— 这是
-      工程制图的标准轴测法，平行投影、无透视，立体关系一目了然。
-   拖尾：LISS_DECAY 越大消失越快（0.15 ≈ 0.25 s，0.06 ≈ 0.8 s）。 */
+   为什么换：李萨如"炫酷但表现力不足"—— 它只反映相位关系，
+   看不出音量的起落、起音的冲击、余音的衰减。
+   峰值保持包络恰恰是演奏者最想看的：
+     · 每帧把 512 个采样压成一个"正峰值 / 负峰值"桶，写进环形历史
+     · 画面上是滚动的包络填充 + 一条高亮的上沿
+     · 峰值保持线只被**更大的峰值**推高，安静下来后极慢回落
+       （用户要求：暂留，直到下一个峰值出现）
+   帧率 103 fps × 512 桶 ≈ 5 秒的历史窗口。 */
+const PH_HIST = 512;
+const phP = new Float32Array(PH_HIST);
+const phN = new Float32Array(PH_HIST);
+let phIdx = 0, phFilled = 0;
+let phHoldP = 0, phHoldN = 0;
+let phHoldT = 0;
+
+function phReset(){ phIdx = 0; phFilled = 0; phHoldP = 0; phHoldN = 0; }
+
+function phPush(){
+  let mp = 0, mn = 0;
+  for(let i = 0; i < 512; i++){
+    const v = state.samples[i];
+    if(v > mp) mp = v;
+    if(v < mn) mn = v;
+  }
+  phP[phIdx] = mp;
+  phN[phIdx] = mn;
+  phIdx = (phIdx + 1) % PH_HIST;
+  if(phFilled < PH_HIST) phFilled++;
+  // 峰值保持：只被更大的峰推高
+  if(mp > phHoldP) phHoldP = mp;
+  if(mn < phHoldN) phHoldN = mn;
+  phHoldT = performance.now();
+}
+
+function drawPeakWave(){
+  const {w,h,dpr} = fitCanvas(cLiss, 2);
+  const g = cLiss.getContext("2d");
+  g.clearRect(0,0,w,h);
+
+  const mid = h/2, amp = h*0.44;
+
+  // ---- 背景网格 ----
+  g.strokeStyle = "rgba(255,255,255,.055)"; g.lineWidth = dpr;
+  for(const fy of [-1,-0.5,0.5,1]){
+    const y = mid - fy*amp;
+    g.beginPath(); g.moveTo(0,y); g.lineTo(w,y); g.stroke();
+  }
+  g.strokeStyle = "rgba(255,255,255,.10)";
+  g.beginPath(); g.moveTo(0,mid); g.lineTo(w,mid); g.stroke();
+
+  // 峰值保持极慢回落（8 秒半衰），看起来就是"一直挂着"
+  phHoldP *= 0.9995;
+  phHoldN *= 0.9995;
+
+  if(phFilled < 2){
+    document.getElementById("lissSub").textContent = "等待数据…";
+    return;
+  }
+
+  const n = phFilled;
+  const dx = w / PH_HIST;
+  const first = (phIdx - n + PH_HIST) % PH_HIST;
+
+  // ---- 包络填充（滚动的历史） ----
+  g.beginPath();
+  for(let k = 0; k < n; k++){
+    const i = (first + k) % PH_HIST;
+    const x = k * dx;
+    const y = mid - phP[i]*amp;
+    if(k === 0) g.moveTo(x, y); else g.lineTo(x, y);
+  }
+  for(let k = n - 1; k >= 0; k--){
+    const i = (first + k) % PH_HIST;
+    const x = k * dx;
+    const y = mid - phN[i]*amp;
+    g.lineTo(x, y);
+  }
+  g.closePath();
+  const grad = g.createLinearGradient(0, mid - amp, 0, mid + amp);
+  grad.addColorStop(0,   "rgba(63,182,240,.34)");
+  grad.addColorStop(0.5, "rgba(63,182,240,.10)");
+  grad.addColorStop(1,   "rgba(63,182,240,.34)");
+  g.fillStyle = grad;
+  g.fill();
+
+  // ---- 上沿 / 下沿亮线 ----
+  for(const [src, sign] of [[phP, +1], [phN, -1]]){
+    g.beginPath();
+    for(let k = 0; k < n; k++){
+      const i = (first + k) % PH_HIST;
+      const x = k * dx;
+      const y = mid - src[i]*amp;
+      if(k === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+    g.strokeStyle = sign > 0 ? "rgba(140,220,255,.85)" : "rgba(90,170,220,.55)";
+    g.lineWidth = (sign > 0 ? 1.4 : 1.0) * dpr;
+    g.stroke();
+  }
+
+  // ---- 最新一帧的峰值点 ----
+  const lastI = (phIdx - 1 + PH_HIST) % PH_HIST;
+  const xLast = (n - 1) * dx;
+  g.fillStyle = "#8fe3ff";
+  g.beginPath(); g.arc(xLast, mid - phP[lastI]*amp, 2.5*dpr, 0, Math.PI*2); g.fill();
+
+  // ---- 峰值保持线（橙色虚线 + 数值）----
+  const yHp = mid - phHoldP*amp;
+  const yHn = mid - phHoldN*amp;
+  g.setLineDash([6*dpr, 5*dpr]);
+  g.lineWidth = 1.2*dpr;
+  g.strokeStyle = "rgba(255,176,32,.85)";
+  g.beginPath(); g.moveTo(0, yHp); g.lineTo(w, yHp); g.stroke();
+  g.strokeStyle = "rgba(255,176,32,.45)";
+  g.beginPath(); g.moveTo(0, yHn); g.lineTo(w, yHn); g.stroke();
+  g.setLineDash([]);
+
+  g.fillStyle = "#ffb020";
+  g.font = `${11*dpr}px Consolas,monospace`;
+  g.textAlign = "left";
+  g.fillText("peak " + phHoldP.toFixed(3), 6*dpr, yHp - 5*dpr);
+
+  document.getElementById("lissSub").textContent =
+    `包络历史 ${n}/${PH_HIST} 帧 ≈ ${(n/103).toFixed(1)} s · 峰值保持 ${phHoldP.toFixed(3)}`;
+}
+
 const LISS_DECAY = 0.13;
 const LISS_SEG   = 0.30;     // 每次画整条曲线的 30%
 const OBL_ANG    = Math.PI / 4;   // 斜二测：z 轴 45°
 const OBL_K      = 0.55;          // 斜二测：z 轴长度缩短
 let lissCanvas = null, lissCtx = null, lissPhase = 0;
+
+/* 音色代表轨迹的"暂留"（2026-11-04）
+   ---------------------------------------------------------------
+   问题：钢琴/吉他都有衰减，李萨如图会随着音量缩小、变形，
+        观众还没看清"这个音色的完整花纹"就已经看不清了。
+   做法：检测到**明显更强的峰值**时，把当前这一帧的轨迹按单位圆归一化后冻结下来，
+        用橙色高亮叠加显示，一直留到下一次更强峰值出现。
+        归一化后图形大小与音量无关，冻结的就是"形状本身"。
+   阈值 1.05×：避免轻微起伏就刷新（图形会闪）；
+   保持值缓慢回落（0.999/帧 ≈ 9 秒半衰）：安静一会儿后允许被更弱的音更新。
+   切换音色时强制重置（不同音色是不同花纹，不能混）。 */
+let lissHold = null;          // {xs, ys, n}
+let lissHoldPeak = 0;
+let lissHoldName = "";
+let freezeDelay = 0;          // 起音后延迟冻结（等 FFT 缓冲填满新数据）
+let freezeCd = 0;             // 冷却帧数，防止连续触发
 
 /* 李萨如：单通道示波器的经典实现 + 荧光余辉
    ---------------------------------------------------------------
@@ -729,6 +872,96 @@ function drawLiss(){
   }
   // 固定参考 + 最多 4 倍自动增益：信号大时如实缩小，信号小时也不会缩成一个点
   const k = amp / Math.max(0.25, rmax);
+
+  // ---- 冻结"最能代表该音色"的轨迹 ----
+  //   用本帧波形峰值作为能量判据：峰值明显更大时更新冻结轨迹。
+  //   ⚠️ 不能"一起音就冻结"：那一瞬间 FFT 缓冲里还有大半是旧的静音数据，
+  //      Hilbert 解析信号退化成一条直线（真机上就出现过橙线变竖线的 bug）。
+  //      所以触发后先等 ~12 帧（≈100 ms）让缓冲填满，再取轨迹；
+  //      并用冷却计数避免连续触发。
+  let framePeak = 0;
+  for(let i=0;i<512;i++){ const v = Math.abs(state.samples[i]); if(v > framePeak) framePeak = v; }
+
+  lissHoldPeak *= 0.999;        // 缓慢回落，允许安静后被刷新
+  if(freezeCd > 0) freezeCd--;
+
+  const nameNow = TIMBRE_NAMES[state.timbre] || "?";
+  if(nameNow !== lissHoldName){          // 换了音色：清空，重新捕捉
+    lissHoldPeak = 0; freezeDelay = 0; freezeCd = 0; lissHoldName = nameNow;
+  }
+
+  if(framePeak > lissHoldPeak * 1.05 && rmax > 0.08 && freezeCd === 0){
+    lissHoldPeak = framePeak;
+    freezeDelay  = 12;                   // ≈100 ms 后取轨迹
+    freezeCd     = 60;                   // 0.5 s 内不重复触发
+  }
+  if(freezeDelay > 0){
+    freezeDelay--;
+    if(freezeDelay === 0 && rmax > 1e-4){
+      // ---- 包络归一化重建（"拟合"成理想闭合图形）----
+      //   实测轨迹是向内螺旋的：因为钢琴在衰减，每转一圈幅度都变小，
+      //   于是李萨如永远闭合不了，看着像一团乱线。
+      //   做法：算出每个点的瞬时半径 r[i]，再取它的慢包络 env[i]（滑动平均），
+      //        用 x'=x/env、y'=y/env 归一化 —— 螺旋就被"拉直"成闭合环，
+      //        剩下的只有这个音色的谐波结构（也就是形状本身）。
+      const rr = new Float32Array(M);
+      for(let i=0;i<M;i++) rr[i] = Math.hypot(A[i0+i], aim[i0+i]);
+
+      const WENV = 96;                      // 包络窗（≈ 1/8 个基频周期）
+      const env = new Float32Array(M);
+      let acc = 0;
+      for(let i=0;i<M;i++){
+        acc += rr[i];
+        if(i >= WENV) acc -= rr[i-WENV];
+        env[i] = acc / Math.min(i+1, WENV);
+      }
+
+      // 归一化后峰值半径 ≈ 1，再缩到画布的 0.92 倍留边
+      let rmaxN = 1e-9;
+      const xs = new Float32Array(M), ys = new Float32Array(M);
+      for(let i=0;i<M;i++){
+        const e = Math.max(env[i], 1e-5);
+        xs[i] = A[i0+i] / e;
+        ys[i] = aim[i0+i] / e;
+        const r = Math.hypot(xs[i], ys[i]);
+        if(r > rmaxN) rmaxN = r;
+      }
+      const scale = 0.92 / Math.max(rmaxN, 1e-6);
+      for(let i=0;i<M;i++){ xs[i] *= scale; ys[i] *= scale; }
+
+      lissHold = {xs, ys, n: M};
+    }
+  }
+
+  // ---- 先画冻结轨迹（橙色，包络归一化后的闭合图形）----
+  if(lissHold){
+    // 底下垫一层暗色，让橙线从青色余辉里跳出来
+    g.strokeStyle = "rgba(10,10,16,.55)";
+    g.lineWidth = 5.0*dpr;
+    g.lineJoin = "round";
+    g.beginPath();
+    for(let i=0;i<lissHold.n;i++){
+      const x = cx + lissHold.xs[i]*amp, y = cy - lissHold.ys[i]*amp;
+      i ? g.lineTo(x,y) : g.moveTo(x,y);
+    }
+    g.closePath();
+    g.stroke();
+
+    g.strokeStyle = "rgba(255,184,48,.95)";
+    g.lineWidth = 2.2*dpr;
+    g.beginPath();
+    for(let i=0;i<lissHold.n;i++){
+      const x = cx + lissHold.xs[i]*amp, y = cy - lissHold.ys[i]*amp;
+      i ? g.lineTo(x,y) : g.moveTo(x,y);
+    }
+    g.stroke();
+
+    // 标注这是哪个音色的代表图形（放左下，避开卡片标题）
+    g.fillStyle = "rgba(255,184,48,.95)";
+    g.font = `${11*dpr}px "Microsoft YaHei"`;
+    g.textAlign = "left";
+    g.fillText("暂留 · " + lissHoldName, 10*dpr, h - 10*dpr);
+  }
 
   // ---- 离屏画布（余辉缓冲）----
   if(!lissCanvas || lissCanvas.width !== w || lissCanvas.height !== h){
@@ -777,7 +1010,7 @@ function drawLiss(){
   g.drawImage(lissCanvas, 0, 0);
 
   document.getElementById("lissSub").textContent =
-    `Hilbert 解析信号（信号 vs 90° 相移）· ${FFT_N} 点 · fs=${(fsEff()/1000).toFixed(1)} kHz`;
+    `Hilbert 解析信号 · 橙线 = ${lissHoldName} 的代表轨迹（暂留）· fs=${(fsEff()/1000).toFixed(1)} kHz`;
 }
 
 function drawNotes(){

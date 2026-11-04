@@ -214,6 +214,28 @@ module synth_ttp229_top #(
     end
     wire [1:0] ir_hand_both = {~ir2_sync[1], ir_hand};
 
+    // ---- IR#2 弱音踏板（2026-11-04）----
+    //   遮挡 = 踩下柔音踏板 → 整体音量降到 1/4（-12 dB），所有音色都吃得到。
+    //   16 ms 消抖：红外在临界距离会抖，不消抖会听到"音量忽大忽小"。
+    //   27 MHz × 16 ms = 432000
+    wire       ir2_raw = ~ir2_sync[1];
+    reg [18:0] ir2_cnt;
+    reg        soft_pedal;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            ir2_cnt    <= 19'd0;
+            soft_pedal <= 1'b0;
+        end
+        else if (ir2_raw != soft_pedal) begin
+            if (ir2_cnt >= 19'd432000) begin
+                soft_pedal <= ir2_raw;
+                ir2_cnt    <= 19'd0;
+            end
+            else ir2_cnt <= ir2_cnt + 19'd1;
+        end
+        else ir2_cnt <= 19'd0;
+    end
+
     // ==================================================================
     // 4c. 红外诊断计数
     //     目的：让上位机直接看到"红外到底有没有反应"——
@@ -288,6 +310,7 @@ module synth_ttp229_top #(
         .fade_soft      (ui_fade_soft),
         .sustain        (sustain),
         .key_state      (key_state),
+        .soft_pedal     (soft_pedal),
         .wave_sel       (wave_sel),
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),

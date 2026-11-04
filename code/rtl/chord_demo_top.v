@@ -195,6 +195,7 @@ module chord_demo_top #(
         .fade_soft      (1'b1),
         .sustain        (1'b0), // demo top: no sustain pedal
         .key_state      (12'd0),
+        .soft_pedal     (1'b0),   // no soft pedal on this board
         .wave_sel       (wave_sel),
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),

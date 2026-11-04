@@ -139,6 +139,7 @@ module synth_board12_top #(
         .fade_soft      (1'b1),
         .sustain        (1'b0), // 12x TTP223 board: no sustain pedal
         .key_state      (key_state),
+        .soft_pedal     (1'b0),   // no soft pedal on this board
         .wave_sel       (wave_sel),     // 由红外挥手切换（原为固定 100 钢琴）
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),

@@ -105,14 +105,17 @@ module piano_engine #(
                 endcase
             end
             else begin
-                // ---- 钢琴：1/h^1.5 全谐波 ----
+                // ---- 钢琴：1/h 全谐波（2026-11-04 第三轮：更亮、更清脆）----
+                //   原来 1/h^1.5：6 次谐波只有 -23 dB，听感偏闷（用户反馈）。
+                //   改成 1/h：-15.6 dB，高次份量补足，起音更"脆"。
+                //   和仍然 = 65536（归一化），不改变总体电平。
                 case (h)
-                    4'd1: harm_weight = 16'd35840;   // 1.000
-                    4'd2: harm_weight = 16'd12672;   // 0.354
-                    4'd3: harm_weight = 16'd6912;    // 0.193
-                    4'd4: harm_weight = 16'd4480;    // 0.125
-                    4'd5: harm_weight = 16'd3200;    // 0.089
-                    4'd6: harm_weight = 16'd2432;    // 0.068
+                    4'd1: harm_weight = 16'd26749;   // 1.000
+                    4'd2: harm_weight = 16'd13374;   // 0.500
+                    4'd3: harm_weight = 16'd8916;    // 0.333
+                    4'd4: harm_weight = 16'd6687;    // 0.250
+                    4'd5: harm_weight = 16'd5350;    // 0.200
+                    4'd6: harm_weight = 16'd4460;    // 0.167
                     default: harm_weight = 16'd0;
                 endcase
             end
@@ -194,14 +197,22 @@ module piano_engine #(
                 decay_shift = 4'd15;
             end
             else begin
-                // ---- 钢琴：高次谐波衰得快（音色由亮变暗）----
+                // ---- 钢琴：高次谐波逐渐衰得快（音色由亮变暗）----
+                //   2026-11-04 第四轮：按 x(t)=G·a(t)·Σ A_k e^(-t/τ_k) sin(2πk f0 t) 定参数。
+                //   衰减节拍已降到每 8 采样一步，所以 τ_k = 2^DSC × 8 / fs：
+                //     DSC=14 → τ ≈ 2.49 s（基波，余韵长）
+                //     DSC=13 → τ ≈ 1.24 s
+                //     DSC=12 → τ ≈ 0.62 s
+                //     DSC=11 → τ ≈ 0.31 s
+                //     DSC=10 → τ ≈ 0.16 s
+                //     DSC= 9 → τ ≈ 0.08 s（6 次谐波，起音后迅速退场）
                 case (h)
                     4'd1: decay_shift = 4'd14;
                     4'd2: decay_shift = 4'd13;
-                    4'd3: decay_shift = 4'd13;
-                    4'd4: decay_shift = 4'd12;
-                    4'd5: decay_shift = 4'd12;
-                    default: decay_shift = 4'd11;
+                    4'd3: decay_shift = 4'd12;
+                    4'd4: decay_shift = 4'd11;
+                    4'd5: decay_shift = 4'd10;
+                    default: decay_shift = 4'd9;
                 endcase
             end
         end
@@ -214,6 +225,17 @@ module piano_engine #(
     reg [15:0]           env   [0:TOTAL-1];
     reg                  atk   [0:TOTAL-1];
 
+    // 衰减节拍分频（2026-11-04）：每 8 个音频采样才衰减一次。
+    //   16 位 env 的 >>DSC 最大只能给到 DSC=15（τ≈0.62 s），
+    //   而钢琴基波要 2 s 以上的余韵。把节拍降 8 倍后，
+    //   等效时间常数 = 2^DSC × 8，DSC=14 就是 ≈2.5 s。
+    reg [2:0] dec8;
+    wire      dec_tick = (dec8 == 3'd7);
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)                   dec8 <= 3'd0;
+        else if (sample_req)          dec8 <= dec8 + 3'd1;
+    end
+
     genvar gv, gh;
     generate
         for (gv = 0; gv < VOICE_NUM; gv = gv + 1) begin : gen_voice
@@ -222,9 +244,10 @@ module piano_engine #(
                 localparam IDX = gv * HARM_NUM + (gh - 1);
                 localparam WGT = harm_weight(gh);      // A[h]
                 localparam DSC = decay_shift(gh);      // 衰减右移位数
-                // 起音步进：钢琴/长笛 64 拍（1.2 ms，瞬间起音）；
-//           管风琴 2048 拍（约 38 ms，有"渐强"感）
-localparam WST = (TIMBRE == 2) ? (WGT >> 11) : (WGT >> 6);
+                // 起音步进：钢琴 5 ms 线性升起（a(t)=min(t/0.005,1)）；
+                // 长笛 1.2 ms；管风琴 38 ms（有"渐强"感）
+                localparam WST = (TIMBRE == 2) ? (WGT >> 11) :
+                                 (TIMBRE == 0) ? (WGT >> 8) : (WGT >> 6);
 
                 localparam RAT = harm_ratio(gh);       // ×128 定点的倍数
                 wire [PHASE_BITS-1:0] fcw_v = voice_fcw[gv*PHASE_BITS +: PHASE_BITS];
@@ -263,8 +286,8 @@ localparam WST = (TIMBRE == 2) ? (WGT >> 11) : (WGT >> 6);
                             if (TIMBRE == 2) begin
                                 // 管风琴：按住时包络保持（持续音，不衰减）
                             end
-                            else begin
-                                // 自然衰减：高次谐波掉得快，音色由亮变暗
+                            else if (dec_tick) begin
+                                // 自然衰减（每 8 采样一步）：高次谐波掉得快，音色由亮变暗
                                 env[IDX] <= env[IDX] - ((env[IDX] >> DSC) | 16'd1);
                             end
                         end
