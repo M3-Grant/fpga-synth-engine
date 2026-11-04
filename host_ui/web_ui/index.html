@@ -819,6 +819,7 @@ const OBL_ANG    = Math.PI / 4;   // 斜二测：z 轴 45°
 const OBL_K      = 0.55;          // 斜二测：z 轴长度缩短
 let lissCanvas = null, lissCtx = null, lissPhase = 0;
 let lissPrevT = 0;            // 上次绘制李萨如的时刻（算余辉衰减用）
+let lissSS = 1;               // 离屏超采样倍率（实际用了多少倍）
 
 /* 音色代表轨迹的"暂留"（2026-11-04）
    ---------------------------------------------------------------
@@ -970,12 +971,23 @@ function drawLiss(){
   }
 
   // ---- 离屏画布（余辉缓冲）----
-  if(!lissCanvas || lissCanvas.width !== w || lissCanvas.height !== h){
+  //   8× 超采样（2026-11-04 用户要求）：
+  //   主画布已经是 dpr×2，离屏再 ×4 就是相对 CSS 像素的 8×，
+  //   画完缩回主画布时浏览器用高质量缩放，线条边缘几乎没有台阶。
+  //   ⚠ 面积上限保护：Chrome 对超大 canvas 会静默返回空白，
+  //     所以超过 3200 万像素就自动降一档（4× → 2×），宁降级不黑屏。
+  const MAX_SS_PIX = 64e6;   // 总 8x 需要 ~56 M 像素（约 220 MB）
+  let SS = 4;
+  while (SS > 1 && (w * SS) * (h * SS) > MAX_SS_PIX) SS >>= 1;
+  if(!lissCanvas || lissCanvas.width !== w*SS || lissCanvas.height !== h*SS){
     lissCanvas = document.createElement("canvas");
-    lissCanvas.width = w; lissCanvas.height = h;
+    lissCanvas.width = w*SS; lissCanvas.height = h*SS;
     lissCtx = lissCanvas.getContext("2d");
+    lissSS = SS;
   }
   const L = lissCtx;
+  // 之后所有绘制都用 w/h 这套逻辑坐标，由 transform 放大到 8× 实际像素
+  L.setTransform(SS, 0, 0, SS, 0, 0);
 
   // 拖尾固定 0.8 秒：按**实际调用间隔**换算每帧衰减量。
   // 李萨如单独限频到 10 Hz 后，间隔是 ~100 ms 而不是 16.7 ms，
@@ -1016,8 +1028,10 @@ function drawLiss(){
   }
   L.globalCompositeOperation = "source-over";
 
-  // 3) 贴到主画布
-  g.drawImage(lissCanvas, 0, 0);
+  // 3) 贴到主画布（离屏是 8×，这里缩回主画布尺寸，缩放本身即抗锯齿）
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(lissCanvas, 0, 0, w, h);
 
   document.getElementById("lissSub").textContent =
     `Hilbert 解析信号（信号 vs 90° 相移）· ${FFT_N} 点 · fs=${(fsEff()/1000).toFixed(1)} kHz`;
