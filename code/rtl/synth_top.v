@@ -47,6 +47,12 @@ module synth_top #(
     // ---- 延音踏板抬起：立即释放所有声部 ----
     input  wire                    all_off,
     input  wire                    fade_soft,   // 1=松键渐弱 0=松键立即静音
+    // ---- 延音踏板（2026-11-04）----
+    //   sustain   : 1 = IR#1 遮挡，踏板踩着
+    //   key_state : 12 个琴键的当前电平，用来判断"这个声部的键还按着吗"
+    //               踩着踏板松手时，包络要走慢衰减而不是停在满音量
+    input  wire                    sustain,
+    input  wire [11:0]             key_state,
     // ---- 音色控制 ----
     input  wire [2:0]              wave_sel,  // 音色：000三角 001方波 010锯齿 011脉冲 100钢琴
     // ---- I2S 输出 ----
@@ -113,6 +119,18 @@ module synth_top #(
     // ==================================================================
     wire [VOICE_NUM*8-1:0] voice_env;
 
+    // 每个声部的琴键是否仍被按着：用该声部当前音符去查 key_state。
+    // 12 键版 note_idx 恒在 0..11；越界时按 0 处理，避免 readmem 之外产生 x。
+    wire [VOICE_NUM-1:0] voice_key_held;
+    localparam [NOTE_BITS-1:0] KEY_MAX = 11;
+
+    generate
+        for (g = 0; g < VOICE_NUM; g = g + 1) begin : gen_held
+            wire [NOTE_BITS-1:0] vn = voice_note[g*NOTE_BITS +: NOTE_BITS];
+            assign voice_key_held[g] = (vn <= KEY_MAX) ? key_state[vn[3:0]] : 1'b0;
+        end
+    endgenerate
+
     generate
         for (g = 0; g < VOICE_NUM; g = g + 1) begin : gen_adsr
             adsr #(
@@ -129,6 +147,8 @@ module synth_top #(
                 .note_on   (voice_busy[g]),   // 电平：只用来判断"松开"
                 .gate      (voice_busy[g]),
                 .fast_release(~fade_soft),
+                .sustain   (sustain),         // 踏板踩着
+                .key_held  (voice_key_held[g]),
                 .env       (voice_env[g*8 +: 8])
             );
         end

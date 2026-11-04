@@ -65,6 +65,11 @@ module tb_adsr;
         .trig      (trig),
         .note_on   (note_on),
         .gate      (gate),
+        // 这个测试台只验证"不踩踏板"的 ADSR 行为：sustain 恒 0，
+        // 包络不会走到 2026-11-04 新增的 S_PEDAL 慢衰减分支。
+        .fast_release (1'b0),
+        .sustain   (1'b0),
+        .key_held  (1'b1),
         .env       (env)
     );
 
@@ -200,8 +205,11 @@ module tb_adsr;
         end
 
         // ===== 检查6：回到 IDLE =====
+        //  RELEASE 每 16 个音频采样减 1 级（sample_en 每 8 clk），
+        //  从 SUS_LEVEL=128 落到 0 需要 128*16*8 ≈ 16.4k clk，
+        //  再留出检查5 已经用掉的 5k clk —— 原来的 10000 一定会超时。
         $display("[检查6] RELEASE 结束回到 IDLE");
-        wait_state(3'd0, 10000, timeout);
+        wait_state(3'd0, 30000, timeout);
         if (dut.state === 3'd0) begin
             $display("  [PASS] 回到 IDLE");
             if (env === 8'd0) $display("  [PASS] env 归零");

@@ -37,6 +37,13 @@ module adsr #(
     input  wire                  note_on,     // 电平：1 = 按住 / 0 = 松开
     input  wire                  gate,        // 1 = 该声部正在发声
     input  wire                  fast_release,// 1 = 松键立即静音（渐弱开关关）
+    // ---- 延音踏板（2026-11-04 新增）----
+    //   sustain = 1 ：IR#1 被遮挡，踏板踩着
+    //   key_held = 1：该声部对应的琴键此刻仍被按着
+    //   两者组合出"踩着踏板松了手"这个状态 —— 此时包络转去 S_PEDAL 慢衰减，
+    //   而不是停在 SUS_LEVEL 恒定满音量（那样听起来是挂音，不是延音）。
+    input  wire                  sustain,
+    input  wire                  key_held,
     output reg  [ENV_BITS-1:0]   env          // 包络电平 0~255
 );
 
@@ -45,6 +52,7 @@ module adsr #(
     localparam S_DECAY   = 3'd2;
     localparam S_SUSTAIN = 3'd3;
     localparam S_RELEASE = 3'd4;
+    localparam S_PEDAL   = 3'd5;
 
     localparam [ENV_BITS-1:0] ENV_MAX = {ENV_BITS{1'b1}};   // 255
 
@@ -73,6 +81,20 @@ module adsr #(
     end
     wire sus_dec = (dec_phase == 9'd191);      // 每 192 采样（160 级约 0.58 s）
     wire rel_dec = (dec_phase[3:0] == 4'hF);   // 每 16 采样
+
+    // ---- 踏板延音衰减节拍（2026-11-04）----
+    //   每 1024 采样走一步，每步 ≈ env/16 + 1 的指数式下降：
+    //   160 → 0 约 0.9 s，与钢琴 KS 档的自然余韵同量级。
+    //   加那个 "+1" 是为了让包络在低位也能真的落到 0，不至于拖出一条
+    //   听不见但一直在算的指数尾巴。
+    reg  [1:0] ped_div;
+    wire ped_tick = (dec_phase == 9'd511);            // 每 512 采样
+    wire ped_dec  = ped_tick && (ped_div[0] == 1'b0); // 每 1024 采样
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)                       ped_div <= 2'd0;
+        else if (sample_en && ped_tick)   ped_div <= ped_div + 2'd1;
+    end
 
     // ------------------------------------------------------------------
     // 事件锁存
@@ -153,8 +175,39 @@ module adsr #(
                     // 只有松键才进入 RELEASE —— 这是风琴/合成器类音色的正确行为。
                     // 钢琴/吉他不走这条 ADSR 通路（它们用 KS 引擎自然衰减）。
                     env <= SUS_LEVEL;
-                    if (rel_pending || !gate) begin
+                    // 踩着延音踏板却已经松手 → 转去慢衰减（像钢琴那样自然弱下去），
+                    // 否则会一直停在满音量，听感是"挂音"而不是"延音"。
+                    if (sustain && !key_held) begin
+                        state <= S_PEDAL;
+                    end
+                    else if (rel_pending || !gate) begin
                         state <= S_RELEASE;
+                    end
+                end
+
+                // ---------- 踏板延音衰减：松手但踩着踏板 ----------
+                S_PEDAL: begin
+                    if (trig_pending) begin
+                        state <= S_ATTACK;          // 同声部重按
+                    end
+                    else if (!gate) begin
+                        env   <= {ENV_BITS{1'b0}};  // 声部被回收（抬脚 all_off）
+                        state <= S_IDLE;
+                    end
+                    else if (!sustain) begin
+                        state <= S_RELEASE;         // 抬脚 → 走正常收尾（渐弱或静音）
+                    end
+                    else if (key_held) begin
+                        state <= S_SUSTAIN;         // 又按住了，回到满音量
+                    end
+                    else if (ped_dec) begin
+                        if (env <= 8'd1) begin
+                            env   <= {ENV_BITS{1'b0}};
+                            state <= S_IDLE;        // 自然衰减完，声部留待 note_alloc 回收
+                        end
+                        else begin
+                            env <= env - (env >> 4) - 8'd1;   // 指数式收尾
+                        end
                     end
                 end
 

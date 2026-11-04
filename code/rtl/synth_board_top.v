@@ -167,6 +167,8 @@ module synth_board_top #(
         .note_idx       (note_idx_r),
         .all_off        (1'b0),
         .fade_soft      (1'b1),
+        .sustain        (1'b0), // 12x TTP223 board: no sustain pedal
+        .key_state      (12'd0),
         .wave_sel       (3'b000),       // 三角波（2 键降级版保留老音色，便于与 beta.2 对照）
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),

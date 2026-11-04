@@ -63,6 +63,12 @@ $suites = [ordered]@{
         out = 'sim_adsr.out'
         src = @("${R}adsr.v", "${S}adsr.v")
     }
+    # 2026-11-04: sustain-pedal release path (S_PEDAL) - slow decay when the
+    # key is released while the pedal is held.
+    'adsr_pedal' = @{
+        out = 'sim_adsr_pedal.out'
+        src = @("${R}adsr.v", "${S}adsr_pedal.v")
+    }
     'synth_top' = @{
         out = 'sim_synth.out'
         src = @("${R}clk_div.v", "${R}i2s_tx.v", "${R}note_table.v", "${R}adsr.v",

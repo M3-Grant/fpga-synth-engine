@@ -286,6 +286,8 @@ module synth_ttp229_top #(
         .note_idx       (note_idx),
         .all_off        (all_off),
         .fade_soft      (ui_fade_soft),
+        .sustain        (sustain),
+        .key_state      (key_state),
         .wave_sel       (wave_sel),
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),

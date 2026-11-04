@@ -193,6 +193,8 @@ module chord_demo_top #(
         .note_idx       (evt_idx),
         .all_off        (1'b0),
         .fade_soft      (1'b1),
+        .sustain        (1'b0), // demo top: no sustain pedal
+        .key_state      (12'd0),
         .wave_sel       (wave_sel),
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),
