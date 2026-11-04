@@ -192,32 +192,53 @@ module synth_top #(
     );
 
     // ==================================================================
-    // 7. 钢琴音色引擎 —— 2026-11-04 起停用
+    // 7. 钢琴音色引擎（2026-11-04 第二轮：恢复加法合成）
     //
-    //    原来钢琴档走加法合成（6 个正弦叠加），实测听感偏"电子风琴"，
-    //    而且与下面的双弦 KS 引擎并行实例化会把逻辑资源顶到 28648
-    //    （器件上限 20736）直接综合失败。
-    //    现在钢琴档（wave_sel=100）与拨弦档（101）统一走 ks_array：
-    //    双弦 + 慢衰减，既更像真钢琴，又省掉约 8k LUT。
+    //    为什么又切回来：KS 的线性延迟线只能产生严格谐波 f_n = n·f0，
+    //    那是"理想弦"（竖琴/吉他），永远不像钢琴。真钢琴弦有弯曲刚度，
+    //    泛音被拉伸 f_n ≈ n·f0·sqrt(1+B·n²)，这是钢琴"金属味/厚度"的来源。
+    //    KS 里塞色散全通可以逼近，但相位补偿与系数标定很难在听感上收敛；
+    //    而 piano_engine 本来就是 6 谐波并行累加，把倍率表从整数改成
+    //    n·sqrt(1+B n²) 即可**精确**实现这个公式（B = 3e-4）。
+    //
+    //    音色分工因此变成两条完全不同的合成路线：
+    //      wave_sel = 4（钢琴）→ piano_engine  加法合成 + 非谐谐波 + 每谐波独立衰减
+    //      wave_sel = 5（吉他）→ ks_array      Karplus-Strong 物理建模
     // ==================================================================
+    wire signed [15:0] piano_audio;
+
+    piano_engine #(
+        .VOICE_NUM  (VOICE_NUM),
+        .PHASE_BITS (PHASE_BITS),
+        .HARM_NUM   (6),
+        .TIMBRE     (0)                  // 0 = 钢琴
+    ) u_piano (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .sample_req (sample_req),
+        .voice_fcw  (voice_fcw),
+        .voice_trig (voice_trig),
+        .voice_busy (voice_busy),
+        .audio      (piano_audio)
+    );
 
     // ==================================================================
     // 8. 输出选择
     //    · 老通路：20 位混音取 [15:0]（÷1）—— 2026-10-27 "声音太小"，
     //             依次从 [17:2] → [16:1] → [15:0] 提上来。
     //             4 声部最坏 30908 < 65536，不会溢出。
-    //    · 钢琴  ：piano_engine 内部已归一化并饱和
     // ==================================================================
     // ------------------------------------------------------------------
-    // Karplus-Strong 拨弦通路（USE_KS=1 时替换钢琴档）
-    //   参数已冻结：(a+3b)/4 低通、三级低通激励、1/4 幅度、0.984 衰减
+    // Karplus-Strong 拨弦通路（吉他专用）
+    //   参数已冻结：(a+3b)/4 低通、三级低通激励、1/8 幅度、y>>5 衰减
     // ------------------------------------------------------------------
     wire signed [15:0] ks_audio;
-    wire piano_mode = (wave_sel == 3'b100);   // 必须在使用前声明，否则会被当成隐式网线
+    wire piano_mode = (wave_sel == 3'b100);
     wire ks_mode    = (wave_sel == 3'b101);
 
     ks_array #(
         .VOICE_NUM   (VOICE_NUM),
+        .DUAL_VOICES (0),        // 吉他专用：全部单弦（钢琴不再走 KS，双弦白占资源）
         .PHASE_BITS  (PHASE_BITS),
         .DEPTH_LOG2  (9),
         .DECAY_SHIFT (8)
@@ -232,10 +253,10 @@ module synth_top #(
         .audio      (ks_audio)
     );
 
-    // 音色选择：0~3 老波形（osc_voice→mix_tree），4 钢琴 / 5 拨弦 都走 KS，
-    // 只是衰减曲线不同（钢琴慢、拨弦快）
-    wire signed [15:0] audio_out = (piano_mode || ks_mode) ? ks_audio
-                                                          : mix_out[15:0];
+    // 音色选择：0~3 老波形（osc_voice→mix_tree），4 钢琴（加法合成），5 吉他（KS）
+    wire signed [15:0] audio_out = piano_mode ? piano_audio :
+                                   ks_mode    ? ks_audio  :
+                                                mix_out[15:0];
 
     // 引出给串口帧（dbg_ 端口，不接也不影响功能）
     assign dbg_sample_req = sample_req;

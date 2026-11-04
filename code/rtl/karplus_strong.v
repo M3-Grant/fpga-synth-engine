@@ -117,8 +117,25 @@ module karplus_strong #(
     //    远超 16 位满幅 → 混音饱和后整段变成**方波**：频谱铺满全频段、
     //    波形是锯齿、听感既不像钢琴也不像吉他。
     //    现在钢琴 1/4、吉他 1/8：4 声部最坏 32764 / 16380，都不削波。
-    wire signed [16:0] exc_s   = slow_decay ? (lp_c >>> 2) : (lp_c >>> 3);
-    wire        [15:0] exc_val = exc_s[15:0];
+    //   2026-11-04 第三轮：激励改为全幅注入，后面的谱整形低通（α=1/16）
+    //   对噪声的 RMS 增益约 0.18（-14.9 dB），正好把幅度拉回可用范围：
+    //   实测峰值 钢琴 ≈5900、吉他 ≈4000，4 声部叠加 23600 / 16000，不削波。
+    wire signed [16:0] exc_s   = lp_c;
+
+    // ★ 2026-11-04 第三轮：激励谱整形（决定"像不像钢琴"的关键）
+    //   原始噪声激励谱是**平坦**的，而 KS 环路的一阶低通对 257 Hz 的基频
+    //   几乎不衰减（每圈 0.024%），5 次谐波每圈也只多衰 0.3%，150 圈才 -3.6 dB。
+    //   实测（FFT，音头 60 ms）：H1..H6 = 0/-0.6/-6.5/-0.7/+0.5/-2.7 dB ——
+    //   H2..H5 与 H1 几乎同强，听感是"金属 / 电子嗡"，不像琴弦。
+    //   真实钢琴的谐波约按 1/h^1.5：H2 -9、H3 -14、H4 -18 dB。
+    //   解决办法：让激励先过一阶低通 α=1/16（fc≈530 Hz），
+    //   得到约 0/-3.9/-8.0/-11.7/-14.9 dB 的谐波倾斜，接近钢琴。
+    //   低通时间常数 16 采样（0.3 ms），远小于激励灌入的 202 采样，不影响音头包络。
+    wire signed [19:0] exc_s20  = {{3{exc_s[16]}}, exc_s};
+    reg  signed [19:0] exc_acc;
+    wire signed [19:0] exc_err  = exc_s20 - exc_acc;
+    wire signed [19:0] exc_filt = exc_acc + (exc_err >>> 4);
+    wire        [15:0] exc_val  = exc_filt[15:0];
 
     localparam S_IDLE  = 2'd0;
     localparam S_EXC   = 2'd1;      // 灌噪声
@@ -182,6 +199,44 @@ module karplus_strong #(
     wire signed [15:0] decayed = busy ? (slow_decay ? decayed_piano : decayed_pluck)
                                       : decayed_damper;
 
+    // ------------------------------------------------------------------
+    // ★★ 色散全通：让泛音"拉伸"，这才像钢琴（2026-11-04 第二轮）
+    //
+    //   线性延迟线只能产生严格谐波 f_n = n·f0 —— 那是"理想弦"，
+    //   听起来像竖琴/吉他，永远不像钢琴。
+    //   真实钢琴弦有弯曲刚度，泛音被拉伸：
+    //       f_n ≈ n·f0·sqrt(1 + B·n²)      （B = 非谐性系数）
+    //   低音区 B ≈ 1e-4，高音区可到 1e-2，这就是钢琴"金属味/厚度"的来源。
+    //
+    //   标准解法（Jaffe & Smith 1983 的 Extended Karplus-Strong）：
+    //   在环路里插一阶全通
+    //       y[n] = x[n-1] - a·x[n] + a·y[n-1]
+    //   全通 |H| = 1 不改变幅度、不影响稳定性，但相位延迟随频率下降，
+    //   高频泛音的环路周期变短 → 频率被抬高 → 等效于 B > 0。
+    //
+    //   实现：a 用 2^-SHIFT 的移位做，不占乘法器。
+    //   ⚠️ a 太小等于没做：一阶全通 a=1/16 在 2 kHz 的相位延迟只差 0.12 采样，
+    //      相对 202 的环路只有 0.06%，等效 B ≈ 2e-5 —— 完全听不出来。
+    //      要让 C4 的 B 落到 1e-4 量级，a 必须取到 1/2 左右。
+    //      代价是基频会被拖慢约 1%（可在 ks_len 里补 1 个采样）。
+    //   钢琴 a = 1/2（明显色散），吉他 a = 1/16（几乎理想弦）。
+    // ------------------------------------------------------------------
+    wire [3:0] disp_sh = slow_decay ? 4'd1 : 4'd4;      // a = 2^-1 / 2^-4
+    reg  signed [16:0] ap_x1, ap_y1;
+    wire signed [16:0] ap_in  = decayed;
+    wire signed [16:0] ap_out = ap_x1 - (ap_in >>> disp_sh) + (ap_y1 >>> disp_sh);
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            ap_x1 <= 17'sd0;
+            ap_y1 <= 17'sd0;
+        end
+        else if (sample_req && state == S_RUN) begin
+            ap_x1 <= ap_in;
+            ap_y1 <= ap_out;
+        end
+    end
+
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -194,6 +249,7 @@ module karplus_strong #(
             state    <= S_IDLE;
             exc_cnt  <= 10'd0;
             run_cnt  <= 18'd0;
+            exc_acc  <= 20'sd0;
             len_q    <= 10'd200;
             audio    <= 16'sd0;
         end
@@ -212,6 +268,7 @@ module karplus_strong #(
                 rd      <= {DEPTH_LOG2{1'b0}};
                 exc_cnt <= 10'd0;
                 run_cnt <= 18'd0;
+                exc_acc <= 20'sd0;
                 len_q   <= ks_len;
                 x_prev  <= 16'd0;
                 audio   <= 16'sd0;
@@ -222,6 +279,7 @@ module karplus_strong #(
                     S_EXC: begin
                         // 激励噪声先做一阶低通 —— 原始白噪声直接灌进去听起来像
                         // "在弦上使劲摩擦"，低通后才像"拨一下"。
+                        exc_acc <= exc_filt;   // 一阶低通状态推进
                         wr_data <= exc_val;
                         wr_en   <= 1'b1;
                         exc_cnt <= exc_cnt + 10'd1;
@@ -235,8 +293,8 @@ module karplus_strong #(
 
                     // ---- 正常循环 ----
                     S_RUN: begin
-                        // 低通 + 衰减 → 写回
-                        wr_data <= decayed;
+                        // 色散全通 → 衰减 → 写回延迟线
+                        wr_data <= ap_out[15:0];
                         wr_en   <= 1'b1;
 
                         x_prev <= x_now;           // 记住上一次读出值

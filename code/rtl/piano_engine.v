@@ -123,31 +123,55 @@ module piano_engine #(
     //   s=14 → 16384 采样 ≈ 310 ms（基波，约 2.2 s 衰到 -60 dB）
     //   s=11 →  2048 采样 ≈  39 ms（6 次谐波，约 0.27 s）
     // ------------------------------------------------------------------
-    // 谐波倍率（×16 定点）：整数倍用于钢琴/长笛/管风琴，非整数倍用于马林巴
+    // 谐波倍率（×128 定点）：整数倍用于长笛/管风琴，非整数倍用于马林巴/钢琴
     //   马林巴的真实频谱是 1 : 3.9 : 9.2（非谐性）——这正是它"木质"的来源，
     //   用整数倍谐波是做不出来的（那会变成风琴/喇叭）。
+    //
+    //   ★ 2026-11-04：钢琴改用**非谐倍率**（用户指出的关键点）
+    //     真实钢琴弦有弯曲刚度，泛音被拉伸：f_n ≈ n·f0·sqrt(1 + B·n²)，
+    //     低音区 B ≈ 1e-4、中音区 B ≈ 3e-4、高音区可到 1e-2。
+    //     严格整数倍（1:2:3:4:5:6）是"理想弦"，听起来像竖琴/风琴，永远不像钢琴。
+    //     这里取 B = 3e-4，×128 定点：
+    //       n=1 → 128      （1.000）
+    //       n=2 → 256      （2.0000，理论 2.0012）
+    //       n=3 → 385      （3.0078，理论 3.0041）
+    //       n=4 → 513      （4.0078，理论 4.0096）
+    //       n=5 → 642      （5.0156，理论 5.0187）
+    //       n=6 → 772      （6.0313，理论 6.0323）
+    //     精度 1/128 换算成频率是 0.78% 一个 LSB，对高次谐波刚好能把拉伸做出来。
     // ------------------------------------------------------------------
-    function [8:0] harm_ratio;   // 9 位：×16 定点最大支持 31.9 倍
+    function [11:0] harm_ratio;   // 12 位 ×128 定点，最大支持 31.9 倍
         input [3:0] h;
         begin
             if (TIMBRE == 3) begin
                 // 马林巴的振动模态：1 : 3.9 : 9.2 : 16.3（越往上越"清脆"）
                 case (h)
-                    4'd1: harm_ratio = 8'd16;    // 1.000
-                    4'd2: harm_ratio = 8'd62;    // 3.875
-                    4'd3: harm_ratio = 8'd147;   // 9.1875
-                    4'd4: harm_ratio = 9'd261;   // 16.3125
-                    default: harm_ratio = 8'd0;
+                    4'd1: harm_ratio = 12'd128;   // 1.000
+                    4'd2: harm_ratio = 12'd496;   // 3.875
+                    4'd3: harm_ratio = 12'd1176;  // 9.1875
+                    4'd4: harm_ratio = 12'd2088;  // 16.3125
+                    default: harm_ratio = 12'd0;
+                endcase
+            end
+            else if (TIMBRE == 0) begin
+                // ---- 钢琴：非谐（拉伸）谐波 f_n = n·f0·sqrt(1+B n²)，B = 3e-4 ----
+                case (h)
+                    4'd1: harm_ratio = 12'd128;   // 1.0000
+                    4'd2: harm_ratio = 12'd256;   // 2.0000
+                    4'd3: harm_ratio = 12'd385;   // 3.0078
+                    4'd4: harm_ratio = 12'd513;   // 4.0078
+                    4'd5: harm_ratio = 12'd642;   // 5.0156
+                    default: harm_ratio = 12'd772; // 6.0313
                 endcase
             end
             else begin
                 case (h)
-                    4'd1: harm_ratio = 8'd16;
-                    4'd2: harm_ratio = 8'd32;
-                    4'd3: harm_ratio = 8'd48;
-                    4'd4: harm_ratio = 8'd64;
-                    4'd5: harm_ratio = 8'd80;
-                    default: harm_ratio = 8'd96;
+                    4'd1: harm_ratio = 12'd128;
+                    4'd2: harm_ratio = 12'd256;
+                    4'd3: harm_ratio = 12'd384;
+                    4'd4: harm_ratio = 12'd512;
+                    4'd5: harm_ratio = 12'd640;
+                    default: harm_ratio = 12'd768;
                 endcase
             end
         end
@@ -202,11 +226,11 @@ module piano_engine #(
 //           管风琴 2048 拍（约 38 ms，有"渐强"感）
 localparam WST = (TIMBRE == 2) ? (WGT >> 11) : (WGT >> 6);
 
-                localparam RAT = harm_ratio(gh);       // ×16 定点的倍数
+                localparam RAT = harm_ratio(gh);       // ×128 定点的倍数
                 wire [PHASE_BITS-1:0] fcw_v = voice_fcw[gv*PHASE_BITS +: PHASE_BITS];
-                // 谐波相位增量 = fcw × (倍率/16)，倍率是常量 → 综合成移位加法
-                wire [PHASE_BITS+9:0] inc_full = fcw_v * RAT;
-                wire [PHASE_BITS-1:0]  inc_v    = inc_full[PHASE_BITS+3:4];
+                // 谐波相位增量 = fcw × (倍率/128)，倍率是常量 → 综合成乘法/移位
+                wire [PHASE_BITS+11:0] inc_full = fcw_v * RAT;
+                wire [PHASE_BITS-1:0]  inc_v    = inc_full[PHASE_BITS+6:7];
 
                 always @(posedge clk or negedge rst_n) begin
                     if (!rst_n) begin
