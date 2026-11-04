@@ -140,7 +140,7 @@
   </header>
 
   <div class="grid">
-    <div class="card hero"><span class="title">峰值保持波形（每帧包络 · 峰值暂留到下一次刷新）</span>
+    <div class="card hero"><span class="title">李萨如图形（信号 vs 90° 相移 · Hilbert）</span>
       <span class="sub" id="lissSub"></span><canvas id="cLiss"></canvas></div>
     <div class="card spec"><span class="title">实时频谱</span>
       <span class="sub" id="specSub"></span><canvas id="cSpec"></canvas></div>
@@ -835,6 +835,11 @@ let lissHoldName = "";
 let freezeDelay = 0;          // 起音后延迟冻结（等 FFT 缓冲填满新数据）
 let freezeCd = 0;             // 冷却帧数，防止连续触发
 
+// 橙色"代表轨迹暂留"的开关。
+//   2026-11-04 用户决定先关掉：衰减信号的轨迹会卷成螺旋，拟合后仍不够好看，
+//   保留代码待后期做新可视化时再开（改成 true 即可）。
+const LISS_SHOW_HOLD = false;
+
 /* 李萨如：单通道示波器的经典实现 + 荧光余辉
    ---------------------------------------------------------------
    坐标定义（真实，无伪维度）：
@@ -934,7 +939,7 @@ function drawLiss(){
   }
 
   // ---- 先画冻结轨迹（橙色，包络归一化后的闭合图形）----
-  if(lissHold){
+  if(LISS_SHOW_HOLD && lissHold){
     // 底下垫一层暗色，让橙线从青色余辉里跳出来
     g.strokeStyle = "rgba(10,10,16,.55)";
     g.lineWidth = 5.0*dpr;
@@ -1010,7 +1015,7 @@ function drawLiss(){
   g.drawImage(lissCanvas, 0, 0);
 
   document.getElementById("lissSub").textContent =
-    `Hilbert 解析信号 · 橙线 = ${lissHoldName} 的代表轨迹（暂留）· fs=${(fsEff()/1000).toFixed(1)} kHz`;
+    `Hilbert 解析信号（信号 vs 90° 相移）· ${FFT_N} 点 · fs=${(fsEff()/1000).toFixed(1)} kHz`;
 }
 
 function drawNotes(){
@@ -1044,7 +1049,7 @@ function drawAll(){
   if(now - lastCanvasT < rafInt * 0.85) return;
   lastCanvasT = now;
   lastDrawT = now;
-  drawWave(); drawSpec(); drawPeakWave(); drawNotes();
+  drawWave(); drawSpec(); drawLiss(); drawNotes();
 }
 
 /* ---- 主循环：测显示器刷新间隔 + 兜底重绘 + fps 统计 ---- */
