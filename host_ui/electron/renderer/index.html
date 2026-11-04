@@ -36,6 +36,24 @@
   .status.bad{color:var(--bad)}
   .chip{font-size:11px;color:var(--dim);border:1px solid var(--grid);
     border-radius:999px;padding:2px 9px}
+  /* 红外指示：● 亮起 = 板子确实检测到遮挡；右侧显示有效挥手计数 */
+  .chip.ir{display:inline-flex;align-items:center;gap:5px}
+  .chip.ir b{font-size:13px;line-height:1;color:#3a3a46;transition:color .08s,text-shadow .08s}
+  .chip.ir b.on{color:#ffb020;text-shadow:0 0 10px rgba(255,176,32,.85)}
+  .chip.ir.detected{border-color:rgba(255,176,32,.55);color:#ffcf7a}
+  /* 松键渐弱开关（下行命令 0xA5 0x02 <0|1>） */
+  .sw{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--dim);
+    border:1px solid var(--grid);border-radius:999px;padding:3px 11px 3px 8px;
+    cursor:pointer;user-select:none;transition:border-color .15s,color .15s}
+  .sw:hover{border-color:#3a3a46;color:var(--text)}
+  .sw.on{color:var(--accent);border-color:rgba(63,182,240,.42)}
+  .sw input{appearance:none;-webkit-appearance:none;width:26px;height:14px;border-radius:999px;
+    background:#2a2a34;position:relative;margin:0;cursor:pointer;flex:0 0 auto;
+    transition:background .15s}
+  .sw input::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;
+    border-radius:50%;background:#7a7a8a;transition:left .15s,background .15s}
+  .sw input:checked{background:rgba(63,182,240,.30)}
+  .sw input:checked::after{left:14px;background:var(--accent)}
 
   /* 主网格：李萨如占左列并跨两行（左上整块都给它），
      右侧上方是频谱、下方是波形，12 音统计横跨右侧底行。 */
@@ -109,8 +127,12 @@
         <option>脉冲波</option><option>钢琴</option><option>吉他</option>
         <option>正弦波(测试)</option>
       </select>
+      <label class="sw on" id="swFade" title="开启：松键后 48 ms 渐弱收尾（风琴/合成器手感）&#10;关闭：松键立即静音（断音更干脆）">
+        <input type="checkbox" id="fadeSoft" checked>松键渐弱
+      </label>
     </div>
     <span class="chip" id="srcChip">数据源 —</span>
+    <span class="chip ir" id="irChip">红外 <b id="irDot1">●</b><b id="irDot2">●</b> <span id="irTxt">—</span></span>
     <div class="bar hint" id="fps">— fps</div>
   </header>
 
@@ -152,6 +174,9 @@ const FS_AUDIO = 52734.375;          // 音频采样率
 const CLK_HZ   = 27e6;
 const NOTE_NAMES = ["C4","C#4","D4","D#4","E4","F4","F#4","G4","G#4","A4","A#4","B4"];
 const TIMBRE_NAMES = ["三角波","方波","锯齿波","脉冲波","钢琴","吉他","正弦波"];
+// Electron 版由主进程用 serialport 独占串口，页面里的 Web Serial 抢不到口，
+// 点「连接串口」只会先把桥接断开、然后卡在 requestPort 里 —— 那条路径禁用。
+const IS_ELECTRON = /Electron/i.test(navigator.userAgent);
 
 const state = {
   mode: "idle",                       // idle | fake | serial | replay
@@ -164,6 +189,7 @@ const state = {
   keysPrev: 0,
   dataFps: 0, fps: 0, _fpsT: performance.now(), _fpsN: 0,
   _dfT: 0, _dfN: 0,
+  ir: { hand1:0, hand2:0, gest:0, short:0, long:0 },   // 红外诊断（帧尾 568~571）
 };
 
 /* 有效采样率与频率轴：payload 是抽取后的数据，必须按 decim 还原 */
@@ -276,6 +302,12 @@ function handleFrame(f){
     state.lat.scan = dv.getUint32(540, true);
     state.lat.valid = state.lat.cnt > 0;
   }
+  // 红外诊断：帧尾 568~571（v2 新增）
+  state.ir.hand1 = f[568] & 1;
+  state.ir.hand2 = (f[568] >> 1) & 1;
+  state.ir.gest  = f[569];
+  state.ir.short = f[570];
+  state.ir.long  = f[571];
   // PC 端统计按键（固件侧的 [544..567] 计数不可靠，见 HANDOFF §8.2）
   const rise = state.keys & ~state.keysPrev;
   for(let i=0;i<12;i++) if(rise & (1<<i)) state.noteCounts[i]++;
@@ -323,6 +355,12 @@ function feedBytes(value){
 /* ---- Web Serial 真实串口 ---- */
 let port = null, reader = null, reading = false, bridgeAbort = null;
 async function connectSerial(silent){
+  if(IS_ELECTRON){
+    // 主进程已经持有串口，Web Serial 再打开会 Access denied，
+    // 而且 stopAll() 会先把工作正常的桥接连线断掉。
+    setStatus("Electron 版由主进程直连串口，请用「连接板子」", false);
+    return false;
+  }
   if(!("serial" in navigator)){
     setStatus("此浏览器不支持 Web Serial（需 Chrome/Edge）", false);
     return false;
@@ -582,7 +620,7 @@ function drawSpec(){
     for(let i=FFT_N/2+1;i<FFT_N;i++){ are[i] = 0; aim[i] = 0; }
     ifft(are, aim);                                            // 时域解析信号
   }
-  const mx = specBuf.mx;
+  const mx = Math.max(0.06, specBuf.mx);   // 固定参考下限：小信号时频谱跟着变矮
   const bh = binHzFFT();                             // fsEff / FFT_N
   const maxF = Math.min(8000, fsEff()/2);            // 不越过 Nyquist
   const maxBin = Math.min(FFT_N/2, Math.max(16, Math.floor(maxF / bh)));
@@ -663,7 +701,8 @@ function drawLiss(){
     const r = Math.hypot(A[i], aim[i]);
     if(r > rmax) rmax = r;
   }
-  const k = amp / rmax;
+  // 固定参考 + 最多 4 倍自动增益：信号大时如实缩小，信号小时也不会缩成一个点
+  const k = amp / Math.max(0.25, rmax);
 
   // ---- 离屏画布（余辉缓冲）----
   if(!lissCanvas || lissCanvas.width !== w || lissCanvas.height !== h){
@@ -800,6 +839,19 @@ function updateReadouts(){
   document.getElementById("noteCap").textContent = `12 音按键次数（PC 端统计，共 ${total} 次）`;
   document.getElementById("footL").textContent =
     `帧 ${state.frames} · 异常 ${state.framesBad} · 收到 ${(state.bytesTotal/1024).toFixed(1)} KB`;
+
+  // ---- 红外指示栏 ----
+  const d1 = document.getElementById("irDot1");
+  if(d1){
+    const on1 = !!state.ir.hand1, on2 = !!state.ir.hand2;
+    d1.classList.toggle("on", on1);
+    document.getElementById("irDot2").classList.toggle("on", on2);
+    document.getElementById("irChip").classList.toggle("detected", on1 || on2);
+    document.getElementById("irTxt").textContent = `挥手 ${state.ir.gest}`;
+    document.getElementById("irChip").title =
+      `IR#1(pin85) ${on1 ? "踩下" : "抬起"} ← 延音踏板 · IR#2(pin73) ${on2 ? "遮挡" : "空闲"}`
+      + ` | 有效挥手 ${state.ir.gest} · 过短 ${state.ir.short} · 过长 ${state.ir.long}`;
+  }
 }
 
 /* ---- 键盘 ---- */
@@ -838,6 +890,27 @@ document.getElementById("btnFake").onclick = ()=>{
   state.noteCounts = new Array(12).fill(0);
   startFake();
 };
+/* ---- 下行 3 字节命令：0xA5 <cmd> <arg> ---- */
+function sendCmd(cmd, arg, okText){
+  const buf = new Uint8Array([0xA5, cmd, arg]);
+  if(port && port.writable){                       // Web Serial 直连
+    const wr = port.writable.getWriter();
+    wr.write(buf).finally(()=>wr.releaseLock());
+    setStatus(okText + "（串口）", true);
+    return true;
+  }
+  if(state.mode === "bridge"){                     // 本地桥接 / Electron 主进程
+    fetch("/cmd", {method:"POST", body: buf})
+      .then(r=>r.json())
+      .then(j=>setStatus(j.ok ? okText + "（桥接）"
+                              : "命令失败：" + (j.error || "未知"), !!j.ok))
+      .catch(err=>setStatus("命令失败：" + err.message, false));
+    return true;
+  }
+  setStatus("未连接，命令没有发出去", false);
+  return false;
+}
+
 document.getElementById("timbre").onchange = (e)=>{
   lastUserTimbre = performance.now();
   const w = e.target.selectedIndex;
@@ -846,24 +919,31 @@ document.getElementById("timbre").onchange = (e)=>{
     setStatus("该档位仅用于模拟模式", false);
     return;
   }
-  const cmd = new Uint8Array([0xA5, 0x01, w]);
-  if(port && port.writable){                       // Web Serial 直连
-    const wr = port.writable.getWriter();
-    wr.write(cmd).finally(()=>wr.releaseLock());
-    setStatus("音色命令已发送（串口）", true);
-  } else if(state.mode === "bridge"){              // 本地桥接下行
-    fetch("/cmd", {method:"POST", body: cmd})
-      .then(r=>r.json())
-      .then(j=>setStatus(j.ok ? "音色命令已发送（桥接）"
-                              : "音色命令失败：" + (j.error || "未知"), !!j.ok))
-      .catch(err=>setStatus("音色命令失败：" + err.message, false));
-  } else {
-    setStatus("未连接，音色命令没有发出去", false);
+  sendCmd(0x01, w, "音色命令已发送");
+};
+
+/* 松键渐弱：固件 ui_cmd.v 的 0xA5 0x02 分支，fade_soft=1 时松键走 48 ms 渐弱 */
+const elSwFade = document.getElementById("swFade");
+const elFade   = document.getElementById("fadeSoft");
+elFade.onchange = ()=>{
+  const on = elFade.checked;
+  elSwFade.classList.toggle("on", on);
+  if(!sendCmd(0x02, on ? 1 : 0, on ? "渐弱已开启" : "渐弱已关闭")){
+    // 没连板子时只保留本地开关状态，不回滚（连上后再拨一次即可下发）
   }
 };
 
 requestAnimationFrame(loop);
-if(!("serial" in navigator)){
+if(IS_ELECTRON){
+  // Electron 版：主进程直连串口，隐藏会冲突的「连接串口」，把主按钮改名
+  const bc = document.getElementById("btnConn");
+  if(bc) bc.style.display = "none";
+  const bb = document.getElementById("btnBridge");
+  if(bb) bb.textContent = "连接板子";
+  const br = document.getElementById("btnReplay");
+  if(br) br.style.display = "";
+  setStatus("等待连接板子…", false);
+} else if(!("serial" in navigator)){
   setStatus("此浏览器没有 Web Serial —— 请点「连接桥接」", false);
 } else {
   setStatus("未连接（点「连接桥接」最省事，无需授权）", false);

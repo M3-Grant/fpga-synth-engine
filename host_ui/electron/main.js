@@ -149,6 +149,9 @@ const server = http.createServer((req, res) => {
       'Cache-Control': 'no-store',
       Connection: 'keep-alive',
     });
+    // 关键：Node 在没有 body 数据时会把响应头缓冲住，浏览器一直等不到响应头，
+    // fetch 的 promise 不 resolve，页面就误判成"连接断开"然后无限重连。
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
     clients.add(res);
     log('[stream] client connected (' + clients.size + ')');
     res.on('close', () => {
@@ -208,16 +211,30 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(async () => {
-  ser = await openSerial();          // 必须接住返回值，否则 ser 一直是 null
-  server.listen(HTTP_PORT, '127.0.0.1', () => {
-    log('[http] listening on http://127.0.0.1:' + HTTP_PORT);
+// 单实例锁：双击多次只保留一个窗口（否则第二个实例抢不到串口，还会重复监听端口）
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
   });
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+
+  app.whenReady().then(async () => {
+    ser = await openSerial();          // 必须接住返回值，否则 ser 一直是 null
+    server.listen(HTTP_PORT, '127.0.0.1', () => {
+      log('[http] listening on http://127.0.0.1:' + HTTP_PORT);
+    });
+    createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
   });
-});
+}
 
 app.on('window-all-closed', () => {
   for (const res of clients) { try { res.end(); } catch (e) {} }

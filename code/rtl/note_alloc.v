@@ -32,6 +32,8 @@ module note_alloc #(
     input  wire                     note_valid,   // 事件有效
     input  wire                     note_on,      // 1=按下 0=松开
     input  wire [NOTE_BITS-1:0]     note_idx,     // 音符索引
+    // ---- 延音踏板抬起时清空所有声部（1 = 立即释放全部）----
+    input  wire                     all_off,
     // ---- 声部状态输出 ----
     output reg  [VOICE_NUM-1:0]     voice_busy,   // 1 = 该声部正在发声
     output reg  [VOICE_NUM*NOTE_BITS-1:0] voice_note, // 各声部当前音符
@@ -129,8 +131,17 @@ module note_alloc #(
                 end
             end
 
+            // ---- 延音踏板抬起：一次性释放所有声部 ----
+            //   踩踏板期间"松键"事件被顶层抑制，声部会一直保持 busy；
+            //   抬脚时在这里统一回收，避免"幽灵声部"占满复音。
+            if (all_off) begin
+                voice_busy <= {VOICE_NUM{1'b0}};
+                for (v = 0; v < VOICE_NUM; v = v + 1) begin
+                    voice_age[v] <= 32'd0;
+                end
+            end
             // ---- 处理音符事件 ----
-            if (note_valid) begin
+            else if (note_valid) begin
                 if (note_on) begin
                     // ============ 按下 ============
                     // 优先复用：该音符已在某个声部上

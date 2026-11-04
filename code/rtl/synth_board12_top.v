@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 //  模块名  : synth_board12_top.v
 //  功能    : 12 键电子琴板级顶层 —— 可直接上板演奏
 //  板卡    : Sipeed Tang Nano 20K (GW2AR-18)，主时钟 27 MHz
@@ -135,6 +135,8 @@ module synth_board12_top #(
         .note_valid     (note_valid),
         .note_on        (note_on),
         .note_idx       (note_idx),
+        .all_off        (1'b0),
+        .fade_soft      (1'b1),
         .wave_sel       (wave_sel),     // 由红外挥手切换（原为固定 100 钢琴）
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),

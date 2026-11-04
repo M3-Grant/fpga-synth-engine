@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 //  模块名  : synth_board_top.v
 //  功能    : 板级顶层 —— 把真实按键接到复音合成器，可直接上板演奏
 //  板卡    : Sipeed Tang Nano 20K (GW2AR-LV18QN88C8/I7)，主时钟 27 MHz
@@ -165,6 +165,8 @@ module synth_board_top #(
         .note_valid     (note_valid_r),
         .note_on        (note_on_r),
         .note_idx       (note_idx_r),
+        .all_off        (1'b0),
+        .fade_soft      (1'b1),
         .wave_sel       (3'b000),       // 三角波（2 键降级版保留老音色，便于与 beta.2 对照）
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),

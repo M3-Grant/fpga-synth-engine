@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 //  模块名  : ui_cmd.v
 //  功能    : 解析上位机下发的命令，输出"UI 指定音色"与"UI 是否在控"
 //  板卡    : Sipeed Tang Nano 20K (GW2AR-18)，27 MHz
@@ -24,6 +24,7 @@ module ui_cmd #(
     input  wire       rx_valid,
     input  wire       clr_i,        // 脉冲：交回红外控制（挥手时拉高）
     output reg  [2:0] ui_wave,      // UI 指定的音色
+    output reg        fade_soft,    // 1 = 松键渐弱(48ms)，0 = 松键立即静音
     output reg        ui_active     // 1 = UI 在控，0 = 红外在控
 );
 
@@ -39,6 +40,7 @@ module ui_cmd #(
             state     <= S_MAGIC;
             cmd       <= 8'd0;
             ui_wave   <= 3'b100;      // 复位默认钢琴
+            fade_soft <= 1'b1;        // 复位默认：松键渐弱
             ui_active <= 1'b0;        // 上电交给红外
         end
         else begin
@@ -69,6 +71,10 @@ module ui_cmd #(
                         // 只有"设置音色"命令且参数在 0..4 才接受
                         if (cmd == CMD_WAVE && rx_data <= 8'd5) begin   // 0~5：三角/方波/锯齿/脉冲/钢琴/吉他
                             ui_wave   <= rx_data[2:0];
+                            ui_active <= 1'b1;
+                        end
+                        else if (cmd == 8'h02) begin                    // 渐弱开关
+                            fade_soft <= (rx_data != 8'd0);
                             ui_active <= 1'b1;
                         end
                         state <= S_MAGIC;

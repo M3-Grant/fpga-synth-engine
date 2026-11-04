@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 //  模块名  : uart_stream.v
 //  功能    : 给 PC 上位机（Web UI / synth_viz.py）的串口帧发送器
 //  板卡    : Sipeed Tang Nano 20K (GW2AR-18)，27 MHz
@@ -59,7 +59,12 @@ module uart_stream #(
     input  wire [15:0] hist0, hist1, hist2, hist3,
     input  wire [15:0] hist4, hist5, hist6, hist7,
     input  wire [15:0] hist8, hist9, hist10, hist11,
-    input  wire [15:0] hist12, hist13, hist14, hist15
+    input  wire [15:0] hist12, hist13, hist14, hist15,
+    // ---- 红外诊断（占用帧尾保留字节 568~571）----
+    input  wire [1:0]  ir_hand,          // bit0 = IR#1(85), bit1 = IR#2(73)，1 = 有手
+    input  wire [7:0]  ir_gesture_cnt,   // 有效挥手累计次数
+    input  wire [7:0]  ir_short_cnt,     // 挥手过短被拒次数
+    input  wire [7:0]  ir_long_cnt       // 挥手过长被拒次数
 );
 
     localparam AW = 10;                     // 2 × 512 双 bank
@@ -142,7 +147,11 @@ module uart_stream #(
                 default: cur_byte = byte_idx[0] ? nc11[15:8] : nc11[7:0];
             endcase
         end
-        else cur_byte = 8'h00;                                     // 568~575 保留
+        else if (byte_idx == 10'd568) cur_byte = {6'b0, ir_hand};
+        else if (byte_idx == 10'd569) cur_byte = ir_gesture_cnt;
+        else if (byte_idx == 10'd570) cur_byte = ir_short_cnt;
+        else if (byte_idx == 10'd571) cur_byte = ir_long_cnt;
+        else cur_byte = 8'h00;                                     // 572~575 保留
     end
 
     assign uart_tx    = tx_line;

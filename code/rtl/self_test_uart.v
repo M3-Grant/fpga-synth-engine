@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 //  模块名  : self_test_uart.v
 //  功能    : self_test_12notes + 串口帧输出（给上位机 synth_viz.py）
 //  板卡    : Sipeed Tang Nano 20K (GW2AR-18)，27 MHz
@@ -172,7 +172,15 @@ module self_test_uart #(
         .timbre    (3'b100),          // 钢琴
         .voices    ({2'b00, gate}),
         .uart_tx   (tx_line),
-        .frame_busy(frame_busy)
+        .frame_busy(frame_busy),
+        // 本自检固件没有延迟测量与红外，全部接空
+        .lat_last  (32'd0), .lat_min (32'hFFFF_FFFF), .lat_max (32'd0),
+        .lat_sum   (32'd0), .lat_cnt (16'd0), .lat_valid (1'b0),
+        .hist0 (16'd0), .hist1 (16'd0), .hist2 (16'd0), .hist3 (16'd0),
+        .hist4 (16'd0), .hist5 (16'd0), .hist6 (16'd0), .hist7 (16'd0),
+        .hist8 (16'd0), .hist9 (16'd0), .hist10(16'd0), .hist11(16'd0),
+        .hist12(16'd0), .hist13(16'd0), .hist14(16'd0), .hist15(16'd0),
+        .ir_hand (2'b00), .ir_gesture_cnt (8'd0), .ir_short_cnt (8'd0), .ir_long_cnt (8'd0)
     );
 
     // ---- LED：低 3 位显示音符序号；[2] 发声中；[1] 正在发串口帧；[0] 心跳 ----

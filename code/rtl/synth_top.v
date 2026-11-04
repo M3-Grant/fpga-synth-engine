@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 //  模块名  : synth_top.v
 //  功能    : 复音合成器顶层 —— 把分配器/振荡器阵列/混音器/I2S 串成完整链路
 //  板卡    : Sipeed Tang Nano 20K (GW2AR-18)，主时钟 27 MHz
@@ -44,6 +44,9 @@ module synth_top #(
     input  wire                    note_valid,
     input  wire                    note_on,
     input  wire [NOTE_BITS-1:0]    note_idx,
+    // ---- 延音踏板抬起：立即释放所有声部 ----
+    input  wire                    all_off,
+    input  wire                    fade_soft,   // 1=松键渐弱 0=松键立即静音
     // ---- 音色控制 ----
     input  wire [2:0]              wave_sel,  // 音色：000三角 001方波 010锯齿 011脉冲 100钢琴
     // ---- I2S 输出 ----
@@ -79,6 +82,7 @@ module synth_top #(
         .note_valid (note_valid),
         .note_on    (note_on),
         .note_idx   (note_idx),
+        .all_off    (all_off),
         .voice_busy (voice_busy),
         .voice_note (voice_note),
         .voice_trig (voice_trig)
@@ -124,6 +128,7 @@ module synth_top #(
                 .trig      (voice_trig[g]),   // note-on 脉冲（抢占时也会来，保证有音头）
                 .note_on   (voice_busy[g]),   // 电平：只用来判断"松开"
                 .gate      (voice_busy[g]),
+                .fast_release(~fade_soft),
                 .env       (voice_env[g*8 +: 8])
             );
         end
@@ -167,27 +172,14 @@ module synth_top #(
     );
 
     // ==================================================================
-    // 7. 钢琴音色引擎（wave_sel = 3'b100 时启用）
+    // 7. 钢琴音色引擎 —— 2026-11-04 起停用
     //
-    //    它自己完成"谐波合成 + 混音 + 饱和"，输出直接就是 16 位样本，
-    //    因此不经过 mix_tree。其余音色（三角/方波/锯齿/脉冲）仍走
-    //    osc_voice → mix_tree 的老通路，两条通路互不影响。
+    //    原来钢琴档走加法合成（6 个正弦叠加），实测听感偏"电子风琴"，
+    //    而且与下面的双弦 KS 引擎并行实例化会把逻辑资源顶到 28648
+    //    （器件上限 20736）直接综合失败。
+    //    现在钢琴档（wave_sel=100）与拨弦档（101）统一走 ks_array：
+    //    双弦 + 慢衰减，既更像真钢琴，又省掉约 8k LUT。
     // ==================================================================
-    wire signed [15:0] piano_audio;
-
-    piano_engine #(
-        .VOICE_NUM  (VOICE_NUM),
-        .HARM_NUM   (6),
-        .PHASE_BITS (PHASE_BITS)
-    ) u_piano (
-        .clk        (clk),
-        .rst_n      (rst_n),
-        .sample_req (sample_req),
-        .voice_fcw  (voice_fcw),
-        .voice_trig (voice_trig),
-        .voice_busy (voice_busy),
-        .audio      (piano_audio)
-    );
 
     // ==================================================================
     // 8. 输出选择
@@ -201,12 +193,14 @@ module synth_top #(
     //   参数已冻结：(a+3b)/4 低通、三级低通激励、1/4 幅度、0.984 衰减
     // ------------------------------------------------------------------
     wire signed [15:0] ks_audio;
+    wire piano_mode = (wave_sel == 3'b100);   // 必须在使用前声明，否则会被当成隐式网线
+    wire ks_mode    = (wave_sel == 3'b101);
 
     ks_array #(
         .VOICE_NUM   (VOICE_NUM),
         .PHASE_BITS  (PHASE_BITS),
         .DEPTH_LOG2  (9),
-        .DECAY_SHIFT (6)
+        .DECAY_SHIFT (8)
     ) u_ks (
         .clk        (clk),
         .rst_n      (rst_n),
@@ -214,15 +208,14 @@ module synth_top #(
         .voice_note (voice_note),
         .voice_trig (voice_trig),
         .voice_busy (voice_busy),
+        .piano_mode (piano_mode),
         .audio      (ks_audio)
     );
-    wire piano_mode = (wave_sel == 3'b100);
 
-    // 音色选择（6 档）：0~3 老波形，4 钢琴（加法合成），5 拨弦（Karplus-Strong）
-    wire ks_mode = (wave_sel == 3'b101);
-    wire signed [15:0] audio_out = piano_mode ? piano_audio :
-                                   ks_mode    ? ks_audio    :
-                                                mix_out[15:0];
+    // 音色选择：0~3 老波形（osc_voice→mix_tree），4 钢琴 / 5 拨弦 都走 KS，
+    // 只是衰减曲线不同（钢琴慢、拨弦快）
+    wire signed [15:0] audio_out = (piano_mode || ks_mode) ? ks_audio
+                                                          : mix_out[15:0];
 
     // 引出给串口帧（dbg_ 端口，不接也不影响功能）
     assign dbg_sample_req = sample_req;

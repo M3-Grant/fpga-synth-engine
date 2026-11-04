@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 //  模块名  : karplus_strong.v
 //  功能    : 拨弦乐器物理建模（Karplus-Strong 算法，单声部）
 //  板卡    : Sipeed Tang Nano 20K (GW2AR-18)，27 MHz
@@ -33,6 +33,7 @@ module karplus_strong #(
     input  wire [9:0]                ks_len,       // 延迟线长度 N = fs/f0
     input  wire                      trig,         // 起音脉冲
     input  wire                      busy,         // 1=发声 0=静音
+    input  wire                      slow_decay,   // 1=钢琴式慢衰减(y>>8) 0=拨弦式快衰减(y>>6)
     output reg  signed [15:0]        audio
 );
 
@@ -45,7 +46,13 @@ module karplus_strong #(
     reg  [DEPTH_LOG2-1:0] wr;
 
     reg  [DEPTH_LOG2-1:0] rd;
-    wire [15:0] x_now = delay[rd];
+    // 延迟线必须是"同步读"，综合器才会把它映射到 BSRAM。
+    // 之前写成 wire x_now = delay[rd]（异步读）时，Gowin 无法用 BRAM 实现，
+    // 整块 512×16 退化成触发器，7 个 KS 实例直接把 DFF 顶到 18573（上限 15750）。
+    // 代价：反馈路径多 1 拍延迟，音高约低 0.5%，实际听不出来。
+    reg  [15:0] x_now_r;
+    always @(posedge clk) x_now_r <= delay[rd];
+    wire [15:0] x_now = x_now_r;
 
     reg  [15:0] x_prev;          // 上一个值，用于一阶低通
 
@@ -89,7 +96,16 @@ module karplus_strong #(
     //   —— 截止更低、高频掉得更快，听感更柔；直流增益仍为 1。
     wire [17:0] lp_sum = ({2'b0, x_now} + {2'b0, x_prev} * 18'd3);
     wire [15:0] lp     = lp_sum[17:2];                        // (a+3b)/4
-    wire        [15:0] decayed = lp - (lp >> DECAY_SHIFT);    // ×(1-2^-s)
+    // 两种衰减曲线运行时可切：
+    //   钢琴档 y-(y>>8) → 时间常数约 1 s，尾音长
+    //   拨弦档 y-(y>>6) → 约 0.5 s，短促、有吉他感
+    wire        [15:0] decayed_piano  = lp - (lp >> 7);   // 钢琴：约 0.7 s
+    wire        [15:0] decayed_pluck  = lp - (lp >> 6);   // 拨弦：约 0.5 s
+    // 松键阻尼：busy=0（键已松开且没踩延音踏板）时用快衰减，
+    // 约 70 ms 听不见 —— 这才是钢琴"止音"的手感。
+    wire        [15:0] decayed_damper = lp - (lp >> 3);
+    wire        [15:0] decayed = busy ? (slow_decay ? decayed_piano : decayed_pluck)
+                                      : decayed_damper;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -159,7 +175,7 @@ module karplus_strong #(
                         //   而延迟线里的能量该衰减多久，就让它衰减多久。
                         //   弹完一个单音马上弹复音时，单音的余音不会被砍断。
                         //   32000 采样 ≈ 0.61 秒（尾音时长）
-                        if (run_cnt > 16'd32000) begin
+                        if (run_cnt > 16'd60000) begin
                             state <= S_IDLE;
                             audio <= 16'sd0;
                         end

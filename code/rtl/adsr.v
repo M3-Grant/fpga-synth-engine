@@ -36,6 +36,7 @@ module adsr #(
     input  wire                  trig,        // note-on 单周期脉冲（抢占/重按也会来）
     input  wire                  note_on,     // 电平：1 = 按住 / 0 = 松开
     input  wire                  gate,        // 1 = 该声部正在发声
+    input  wire                  fast_release,// 1 = 松键立即静音（渐弱开关关）
     output reg  [ENV_BITS-1:0]   env          // 包络电平 0~255
 );
 
@@ -54,6 +55,24 @@ module adsr #(
     reg rel_pending;
 
     wire rel_edge  = ~note_on &  note_on_d;
+
+    // ------------------------------------------------------------------
+    // 2026-11-04 衰减节拍
+    //
+    // 原来是"SUSTAIN 恒定 160 + RELEASE 每周期减 3"，结果是：
+    //   按住时音量完全不变（三角/方波听起来像风琴，永远不弱）；
+    //   松键后约 1 ms 就归零（听感是"硬切"，不是渐弱）。
+    // 现在改用两个慢节拍做线性衰减：
+    //   按住 每 512 采样减 1 → 160 级约 1.55 s 落到底（像钢琴那样慢慢弱下去）
+    //   松键 每 16  采样减 1 → 约 48 ms 收尾（止音手感）
+    // ------------------------------------------------------------------
+    reg [8:0] dec_phase;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)             dec_phase <= 9'd0;
+        else if (sample_en)     dec_phase <= dec_phase + 9'd1;
+    end
+    wire sus_dec = (dec_phase == 9'd191);      // 每 192 采样（160 级约 0.58 s）
+    wire rel_dec = (dec_phase[3:0] == 4'hF);   // 每 16 采样
 
     // ------------------------------------------------------------------
     // 事件锁存
@@ -128,23 +147,34 @@ module adsr #(
                     end
                 end
 
-                // ---------- 持续：电平保持 ----------
+                // ---------- 持续：缓慢衰减（钢琴式渐弱） ----------
                 S_SUSTAIN: begin
+                    // 数字波形（三角/方波/锯齿/脉冲）：按住就一直保持满音量，
+                    // 只有松键才进入 RELEASE —— 这是风琴/合成器类音色的正确行为。
+                    // 钢琴/吉他不走这条 ADSR 通路（它们用 KS 引擎自然衰减）。
                     env <= SUS_LEVEL;
-                    if (rel_pending || !gate) state <= S_RELEASE;
+                    if (rel_pending || !gate) begin
+                        state <= S_RELEASE;
+                    end
                 end
 
-                // ---------- 释放：衰减到 0 ----------
+                // ---------- 释放：渐弱(48ms) 或 立即消失（由 fast_release 决定） ----------
                 S_RELEASE: begin
                     if (trig_pending) begin
                         state <= S_ATTACK;         // 余韵中重按
                     end
-                    else if (env <= REL_STEP) begin
-                        env   <= {ENV_BITS{1'b0}};
+                    else if (fast_release) begin
+                        env   <= {ENV_BITS{1'b0}}; // 直接静音
                         state <= S_IDLE;
                     end
-                    else begin
-                        env <= env - REL_STEP;
+                    else if (rel_dec) begin
+                        if (env <= 8'd1) begin
+                            env   <= {ENV_BITS{1'b0}};
+                            state <= S_IDLE;
+                        end
+                        else begin
+                            env <= env - 8'd1;
+                        end
                     end
                 end
 

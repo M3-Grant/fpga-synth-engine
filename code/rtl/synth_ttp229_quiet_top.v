@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 //  module : synth_ttp229_quiet_top.v
 //  purpose: same as synth_ttp229 (touch / latency / UART all live) but the
 //           audio output is held at digital zero, so the speaker stays silent.
@@ -18,7 +18,8 @@
 
 module synth_ttp229_quiet_top (
     input  wire        clk,        // 27 MHz, pin 4
-    input  wire        ir_in,      // IR obstacle module, pin 74
+    input  wire        ir_in,      // IR #1 (pin 85)
+    input  wire        ir2_in,     // IR #2 (pin 73)
     output wire        ttp_scl,    // -> TTP229 SCL, pin 75
     input  wire        ttp_sdo,    // <- TTP229 SDO, pin 76
     input  wire        uart_rx_i,  // <- USB-TTL TXD, pin 27
@@ -35,6 +36,7 @@ module synth_ttp229_quiet_top (
     synth_ttp229_top u_core (
         .clk       (clk),
         .ir_in     (ir_in),
+        .ir2_in    (ir2_in),
         .ttp_scl   (ttp_scl),
         .ttp_sdo   (ttp_sdo),
         .uart_rx_i (uart_rx_i),

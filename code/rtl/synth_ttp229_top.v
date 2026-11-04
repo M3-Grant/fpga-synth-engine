@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 //  模块名  : synth_ttp229_top.v
 //  功能    : 12 键电子琴板级顶层 —— **TTP229 触摸模块版**
 //  板卡    : Sipeed Tang Nano 20K (GW2AR-18)，27 MHz
@@ -40,7 +40,8 @@ module synth_ttp229_top #(
     parameter TTP_ACTIVE_LOW = 1           // TTP229 输出 0=按下，必须取反
 )(
     input  wire        clk,        // 27 MHz，引脚 4
-    input  wire        ir_in,      // 红外避障模块（低 = 有手），引脚 74
+    input  wire        ir_in,      // 红外 #1（力度/表情），引脚 85（低 = 有手）
+    input  wire        ir2_in,     // 红外 #2（弯音），引脚 73（低 = 有手）
     output wire        ttp_scl,    // → TTP229 SCL，引脚 75
     input  wire        ttp_sdo,    // ← TTP229 SDO，引脚 76
     input  wire        uart_rx_i, // ← USB-TTL 的 TXD，引脚 70
@@ -129,7 +130,7 @@ module synth_ttp229_top #(
     // 4. 12 路按键扫描（复用原模块，ACTIVE_LOW=0 与 TTP229 的高有效一致）
     // ==================================================================
     wire [KEY_NUM-1:0] key_state;
-    wire               note_valid;
+    wire               note_valid_raw;
     wire               note_on;
     wire [NOTE_BITS-1:0] note_idx;
 
@@ -143,10 +144,29 @@ module synth_ttp229_top #(
         .rst_n     (rst_n),
         .key_in    (key),
         .key_state (key_state),
-        .note_valid(note_valid),
+        .note_valid(note_valid_raw),
         .note_on   (note_on),
         .note_idx  (note_idx)
     );
+
+    // ==================================================================
+    // 延音踏板（Sustain）—— 2026-11-04
+    //   IR#1（引脚 85）被遮挡 = 踩下延音踏板。
+    //   踩下时抑制"松键"事件：note_alloc 收不到 note_off，声部保持 busy，
+    //   piano_engine 就不会走 70 ms 的 damper，音符按自然衰减继续响。
+    //   抬脚后事件恢复正常（已自然衰减完的音不会突然复活）。
+    //   红外 gesture 实例保留（诊断用），但音色改由 UI 控制，不再被挥手夺走。
+    // ==================================================================
+    wire sustain    = ir_hand;                                  // 消抖后的"有手"
+    wire note_valid = note_valid_raw & (note_on | ~sustain);
+
+    // 抬脚瞬间且没有任何键按着 → 清空所有声部，回收"延长音"占用的复音资源
+    reg sustain_d;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) sustain_d <= 1'b0;
+        else        sustain_d <= sustain;
+    end
+    wire all_off = (sustain_d & ~sustain) & (key_state == {KEY_NUM{1'b0}});
 
     // ==================================================================
     // 5. 红外手势 → 音色切换（第二演奏维度）
@@ -154,7 +174,8 @@ module synth_ttp229_top #(
     wire [2:0] ir_wave;              // 红外维护的音色
     wire [2:0] ui_wave;              // 上位机指定的音色
     wire       ui_active;            // 1 = UI 在控，0 = 红外在控
-    wire [2:0] wave_sel = ui_active ? ui_wave : ir_wave;   // 最终音色（硬件优先）
+    wire       ui_fade_soft;         // 1 = 松键渐弱，0 = 松键立即静音
+    wire [2:0] wave_sel = ui_wave;   // 红外#1 改作延音踏板，音色只由 UI/默认值决定
     wire       ir_gesture_valid;
     wire       ir_hand;
     wire       swipe_tooshort;
@@ -176,6 +197,38 @@ module synth_ttp229_top #(
         .swipe_tooshort(swipe_tooshort),
         .swipe_toolong (swipe_toolong)
     );
+
+    // ==================================================================
+    // 4b. 红外 #2（引脚 73，弯音通道）打两拍同步 + 两路状态打包
+    //     模块 OUT 低有效，这里统一成"1 = 检测到手"，方便上位机直接显示。
+    // ==================================================================
+    reg [1:0] ir2_sync;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) ir2_sync <= 2'b11;      // 上电默认未遮挡
+        else        ir2_sync <= {ir2_sync[0], ir2_in};
+    end
+    wire [1:0] ir_hand_both = {~ir2_sync[1], ir_hand};
+
+    // ==================================================================
+    // 4c. 红外诊断计数
+    //     目的：让上位机直接看到"红外到底有没有反应"——
+    //     ir_hand 反映当前有没有遮挡，三个计数分别记录有效挥手、
+    //     过短被拒、过长被拒，能直接区分"没接好"和"阈值不合适"。
+    // ==================================================================
+    reg [7:0] ir_gest_cnt, ir_short_cnt, ir_long_cnt;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            ir_gest_cnt  <= 8'd0;
+            ir_short_cnt <= 8'd0;
+            ir_long_cnt  <= 8'd0;
+        end
+        else begin
+            if (ir_gesture_valid) ir_gest_cnt  <= ir_gest_cnt  + 8'd1;
+            if (swipe_tooshort)   ir_short_cnt <= ir_short_cnt + 8'd1;
+            if (swipe_toolong)    ir_long_cnt  <= ir_long_cnt  + 8'd1;
+        end
+    end
 
     // ==================================================================
     // 5b. 上位机下行命令（UI 实时切音色）
@@ -202,6 +255,7 @@ module synth_ttp229_top #(
         .rx_valid (ui_rx_valid),
         .clr_i    (ir_gesture_valid),     // 挥手 → 交回红外
         .ui_wave  (ui_wave),
+        .fade_soft(ui_fade_soft),
         .ui_active(ui_active)
     );
 
@@ -224,6 +278,8 @@ module synth_ttp229_top #(
         .note_valid     (note_valid),
         .note_on        (note_on),
         .note_idx       (note_idx),
+        .all_off        (all_off),
+        .fade_soft      (ui_fade_soft),
         .wave_sel       (wave_sel),
         .i2s_bck        (i2s_bck),
         .i2s_lrck       (i2s_lrck),
@@ -392,7 +448,12 @@ module synth_ttp229_top #(
         .hist0  (nc0),  .hist1  (nc1),  .hist2  (nc2),  .hist3  (nc3),
         .hist4  (nc4),  .hist5  (nc5),  .hist6  (nc6),  .hist7  (nc7),
         .hist8  (nc8),  .hist9  (nc9),  .hist10 (nc10), .hist11 (nc11),
-        .hist12 (16'd0), .hist13 (16'd0), .hist14 (16'd0), .hist15 (16'd0)
+        .hist12 (16'd0), .hist13 (16'd0), .hist14 (16'd0), .hist15 (16'd0),
+        // 红外诊断（帧尾 568~571，供上位机显示"板子到底有没有收到红外"）
+        .ir_hand        (ir_hand_both),
+        .ir_gesture_cnt (ir_gest_cnt),
+        .ir_short_cnt   (ir_short_cnt),
+        .ir_long_cnt    (ir_long_cnt)
     );
 
     wire uart_tx_line;
