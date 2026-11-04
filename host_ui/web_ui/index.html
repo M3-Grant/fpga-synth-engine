@@ -818,6 +818,7 @@ const LISS_SEG   = 0.30;     // 每次画整条曲线的 30%
 const OBL_ANG    = Math.PI / 4;   // 斜二测：z 轴 45°
 const OBL_K      = 0.55;          // 斜二测：z 轴长度缩短
 let lissCanvas = null, lissCtx = null, lissPhase = 0;
+let lissPrevT = 0;            // 上次绘制李萨如的时刻（算余辉衰减用）
 
 /* 音色代表轨迹的"暂留"（2026-11-04）
    ---------------------------------------------------------------
@@ -976,10 +977,14 @@ function drawLiss(){
   }
   const L = lissCtx;
 
-  // 拖尾固定 0.8 秒：按显示器刷新间隔换算每帧衰减量，
-  // 让 60 Hz 与 144 Hz 屏上的余辉时长一致。
+  // 拖尾固定 0.8 秒：按**实际调用间隔**换算每帧衰减量。
+  // 李萨如单独限频到 10 Hz 后，间隔是 ~100 ms 而不是 16.7 ms，
+  // 如果还用 rafInt 算，拖尾会被拉长 6 倍。
   const LISS_TAIL_MS = 800;
-  const decay = 1 - Math.pow(0.05, rafInt / LISS_TAIL_MS);
+  const dtNow = performance.now();
+  const lissDt = lissPrevT ? Math.min(600, dtNow - lissPrevT) : rafInt;
+  lissPrevT = dtNow;
+  const decay = 1 - Math.pow(0.05, lissDt / LISS_TAIL_MS);
 
   // 1) 荧光衰减
   L.globalCompositeOperation = "destination-out";
@@ -1041,6 +1046,15 @@ function drawNotes(){
 let lastDrawT = performance.now();
 let lastCanvasT = 0;
 let rafInt = 16.7, lastRafT = 0;   // 显示器刷新间隔（由 loop 自适应更新）
+
+// 李萨如单独限频（2026-11-04）：用户要求降到 10 Hz。
+//   波形/频谱/统计仍然跟屏幕刷新率，只有李萨如按 100 ms 一格走。
+//   注意：drawLiss 内部的余辉衰减必须改用**实际调用间隔**，
+//   否则 10 Hz 下每帧的衰减量还是按 16.7 ms 算，拖尾会拉长 6 倍。
+const LISS_HZ = 10;
+const LISS_INTERVAL = 1000 / LISS_HZ;
+let lastLissT = 0;
+
 function drawAll(){
   // 键盘是轻量 DOM 操作，每帧都跟，保证按键反馈最跟手
   drawKeyboard();
@@ -1049,7 +1063,12 @@ function drawAll(){
   if(now - lastCanvasT < rafInt * 0.85) return;
   lastCanvasT = now;
   lastDrawT = now;
-  drawWave(); drawSpec(); drawLiss(); drawNotes();
+  drawWave(); drawSpec(); drawNotes();
+  // 李萨如：按 10 Hz 跳帧
+  if(now - lastLissT >= LISS_INTERVAL){
+    lastLissT = now;
+    drawLiss();
+  }
 }
 
 /* ---- 主循环：测显示器刷新间隔 + 兜底重绘 + fps 统计 ---- */
