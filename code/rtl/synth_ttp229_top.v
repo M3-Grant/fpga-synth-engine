@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 //  模块名  : synth_ttp229_top.v
 //  功能    : 12 键电子琴板级顶层 —— **TTP229 触摸模块版**
 //  板卡    : Sipeed Tang Nano 20K (GW2AR-18)，27 MHz
@@ -157,7 +157,12 @@ module synth_ttp229_top #(
     //   抬脚后事件恢复正常（已自然衰减完的音不会突然复活）。
     //   红外 gesture 实例保留（诊断用），但音色改由 UI 控制，不再被挥手夺走。
     // ==================================================================
-    wire sustain    = ir_hand;                                  // 消抖后的"有手"
+    //   ui_sustain_en（下行 0xA5 0x03）是延音踏板的**总开关**：
+    //   红外模块朝桌面/被常遮挡时会一直报"有手"= 踏板被永久踩住，
+    //   数字波形档的松键事件会被全部吞掉（听感上就是"挂音"）。
+    //   上位机关掉这个开关，sustain 恒 0，松键立刻释放。
+    wire ui_sustain_en;                                         // 1 = 启用 IR#1 踏板
+    wire sustain    = ir_hand & ui_sustain_en;                  // 消抖后的"有手"且踏板使能
     wire note_valid = note_valid_raw & (note_on | ~sustain);
 
     // 抬脚瞬间且没有任何键按着 → 清空所有声部，回收"延长音"占用的复音资源
@@ -256,6 +261,7 @@ module synth_ttp229_top #(
         .clr_i    (ir_gesture_valid),     // 挥手 → 交回红外
         .ui_wave  (ui_wave),
         .fade_soft(ui_fade_soft),
+        .sustain_en(ui_sustain_en),
         .ui_active(ui_active)
     );
 

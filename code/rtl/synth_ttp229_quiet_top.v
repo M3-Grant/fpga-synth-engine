@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 //  module : synth_ttp229_quiet_top.v
 //  purpose: same as synth_ttp229 (touch / latency / UART all live) but the
 //           audio output is held at digital zero, so the speaker stays silent.

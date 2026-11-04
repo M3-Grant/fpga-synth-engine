@@ -130,6 +130,9 @@
       <label class="sw on" id="swFade" title="开启：松键后 48 ms 渐弱收尾（风琴/合成器手感）&#10;关闭：松键立即静音（断音更干脆）">
         <input type="checkbox" id="fadeSoft" checked>松键渐弱
       </label>
+      <label class="sw on" id="swSustain" title="开启：IR#1（引脚 85）遮挡 = 踩延音踏板，松键不释放声部&#10;关闭：忽略 IR#1，松键立刻释放（红外被常遮挡时用它解除挂音）">
+        <input type="checkbox" id="sustainEn" checked>延音踏板
+      </label>
     </div>
     <span class="chip" id="srcChip">数据源 —</span>
     <span class="chip ir" id="irChip">红外 <b id="irDot1">●</b><b id="irDot2">●</b> <span id="irTxt">—</span></span>
@@ -928,9 +931,16 @@ const elFade   = document.getElementById("fadeSoft");
 elFade.onchange = ()=>{
   const on = elFade.checked;
   elSwFade.classList.toggle("on", on);
-  if(!sendCmd(0x02, on ? 1 : 0, on ? "渐弱已开启" : "渐弱已关闭")){
-    // 没连板子时只保留本地开关状态，不回滚（连上后再拨一次即可下发）
-  }
+  sendCmd(0x02, on ? 1 : 0, on ? "渐弱已开启" : "渐弱已关闭");
+};
+
+/* 延音踏板使能：0xA5 0x03，关掉后 IR#1 不再当踏板（红外被常遮挡时解除挂音） */
+const elSwSust = document.getElementById("swSustain");
+const elSust   = document.getElementById("sustainEn");
+elSust.onchange = ()=>{
+  const on = elSust.checked;
+  elSwSust.classList.toggle("on", on);
+  sendCmd(0x03, on ? 1 : 0, on ? "延音踏板已开启" : "延音踏板已关闭");
 };
 
 requestAnimationFrame(loop);
