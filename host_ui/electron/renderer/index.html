@@ -971,13 +971,17 @@ function drawLiss(){
   }
 
   // ---- 离屏画布（余辉缓冲）----
-  //   8× 超采样（2026-11-04 用户要求）：
-  //   主画布已经是 dpr×2，离屏再 ×4 就是相对 CSS 像素的 8×，
-  //   画完缩回主画布时浏览器用高质量缩放，线条边缘几乎没有台阶。
+  //   超采样倍数 = 主画布的 dpr×2 × 这里的 SS。
+  //   2026-11-04 实测（窗口 1818×1914 CSS 像素、30 Hz 刷新）：
+  //     SS=2（总 4×） 13.9 M 像素 → 120 fps
+  //     SS=3（总 6×） 31.3 M 像素 → 120 fps   ← 当前，画质/帧率平衡点
+  //     SS=4（总 8×） 55.7 M 像素 →  65 fps   ← 8× 和 30 Hz 不可兼得
+  //   所以取 6×：线条边缘基本看不出台阶，同时保住满帧。
+  //   想要 8× 就把 SS 改回 4，代价是渲染跌到 ~65 fps。
   //   ⚠ 面积上限保护：Chrome 对超大 canvas 会静默返回空白，
-  //     所以超过 3200 万像素就自动降一档（4× → 2×），宁降级不黑屏。
+  //     超过 6400 万像素自动降一档，宁降级不黑屏。
   const MAX_SS_PIX = 64e6;   // 总 8x 需要 ~56 M 像素（约 220 MB）
-  let SS = 4;
+  let SS = 3;
   while (SS > 1 && (w * SS) * (h * SS) > MAX_SS_PIX) SS >>= 1;
   if(!lissCanvas || lissCanvas.width !== w*SS || lissCanvas.height !== h*SS){
     lissCanvas = document.createElement("canvas");
@@ -1061,11 +1065,11 @@ let lastDrawT = performance.now();
 let lastCanvasT = 0;
 let rafInt = 16.7, lastRafT = 0;   // 显示器刷新间隔（由 loop 自适应更新）
 
-// 李萨如单独限频（2026-11-04）：用户要求降到 10 Hz。
+// 李萨如单独限频（2026-11-04）：用户要求 30 Hz。
 //   波形/频谱/统计仍然跟屏幕刷新率，只有李萨如按 100 ms 一格走。
 //   注意：drawLiss 内部的余辉衰减必须改用**实际调用间隔**，
 //   否则 10 Hz 下每帧的衰减量还是按 16.7 ms 算，拖尾会拉长 6 倍。
-const LISS_HZ = 10;
+const LISS_HZ = 30;
 const LISS_INTERVAL = 1000 / LISS_HZ;
 let lastLissT = 0;
 
