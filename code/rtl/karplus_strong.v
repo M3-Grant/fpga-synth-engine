@@ -33,7 +33,13 @@ module karplus_strong #(
     input  wire [9:0]                ks_len,       // 延迟线长度 N = fs/f0
     input  wire                      trig,         // 起音脉冲
     input  wire                      busy,         // 1=发声 0=静音
-    input  wire                      slow_decay,   // 1=钢琴式慢衰减(y>>8) 0=拨弦式快衰减(y>>6)
+    input  wire                      slow_decay,   // 1=钢琴式慢衰减(y>>8) 0=拨弦式快衰减(y>>5)
+    // ---- 延音踏板（2026-11-04 补）----
+    //   ⚠️ 之前 sustain 只喂给 note_valid 门控和 adsr，没进 KS ——
+    //      踩踏板时吉他的 voice_busy 虽然保持 1，衰减却仍走拨弦档
+    //      （τ≈0.25 s，0.67 s 就没声），比钢琴的 2.5 s 短一个数量级，
+    //      踏板对吉他等于没用。现在踩踏板切到 ≈0.7 s 的中间档。
+    input  wire                      sustain,
     output reg  signed [15:0]        audio
 );
 
@@ -153,7 +159,7 @@ module karplus_strong #(
     // 吉他保持 ≈0.95 s（那时已低于 0.7%，本来就没声了）。
     localparam [17:0] RUN_MAX_PIANO = 18'd180000;   // 180000 / 52734 ≈ 3.41 s
     localparam [17:0] RUN_MAX_PLUCK = 18'd50000;    //  50000 / 52734 ≈ 0.95 s
-    wire [17:0] run_max = slow_decay ? RUN_MAX_PIANO : RUN_MAX_PLUCK;
+    wire [17:0] run_max = (slow_decay || sustain) ? RUN_MAX_PIANO : RUN_MAX_PLUCK;
 
     // 衰减后的反馈值
     // ------------------------------------------------------------------
@@ -192,12 +198,16 @@ module karplus_strong #(
     // 衰减也必须是有符号算术右移（上一棒已改成 >>>，保留）。
     wire signed [15:0] lp_s           = lp;
     wire signed [15:0] decayed_piano  = lp_s - (lp_s >>> 8);   // 钢琴：约 1.4 s
-    wire signed [15:0] decayed_pluck  = lp_s - (lp_s >>> 5);   // 吉他：约 0.25 s
+    wire signed [15:0] decayed_pluck  = lp_s - (lp_s >>> 5);   // 吉他松键：约 0.25 s
+    // 吉他 + 延音踏板：介于两者之间（≈0.7 s），否则踩了踏板还是 0.67 s 就没了
+    wire signed [15:0] decayed_pluck_sus = lp_s - (lp_s >>> 7);
     // 松键阻尼：busy=0（键已松开且没踩延音踏板）时用快衰减，
     // 约 70 ms 听不见 —— 这才是钢琴"止音"的手感。
     wire signed [15:0] decayed_damper = lp_s - (lp_s >>> 3);
-    wire signed [15:0] decayed = busy ? (slow_decay ? decayed_piano : decayed_pluck)
-                                      : decayed_damper;
+    wire signed [15:0] decayed = busy
+        ? (slow_decay ? decayed_piano
+                      : (sustain ? decayed_pluck_sus : decayed_pluck))
+        : decayed_damper;
 
     // ------------------------------------------------------------------
     // ★★ 色散全通：让泛音"拉伸"，这才像钢琴（2026-11-04 第二轮）

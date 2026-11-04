@@ -253,6 +253,7 @@ module synth_top #(
         .voice_trig (voice_trig),
         .voice_busy (voice_busy),
         .piano_mode (piano_mode),
+        .sustain    (sustain),
         .audio      (ks_audio)
     );
 

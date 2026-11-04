@@ -144,6 +144,7 @@ module self_test_ks #(
         // 会被当成不定值；自检固件固定用钢琴档（1）。
         // 注：DECAY_SHIFT 参数已不再生效（衰减改为慢/快两档硬编码），故删掉。
         .slow_decay (1'b1),
+        .sustain(1'b0),
         .audio      (raw_audio)
     );
 

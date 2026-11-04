@@ -33,6 +33,7 @@ module ks_array #(
     input  wire [VOICE_NUM-1:0]       voice_trig,    // 起音脉冲
     input  wire [VOICE_NUM-1:0]       voice_busy,    // 1=发声中
     input  wire                       piano_mode,    // 1=钢琴(慢衰减) 0=拨弦(快衰减)
+    input  wire                       sustain,       // 1=延音踏板踩着（吉他切慢衰减）
     output wire signed [15:0]         audio
 );
 
@@ -80,6 +81,7 @@ module ks_array #(
                 .trig       (voice_trig[gv]),
                 .busy       (voice_busy[gv]),
                 .slow_decay (piano_mode),
+                .sustain    (sustain),
                 .audio      (aud_a)
             );
 
@@ -99,6 +101,7 @@ module ks_array #(
                     .trig       (voice_trig[gv]),
                     .busy       (voice_busy[gv]),
                     .slow_decay (piano_mode),
+                .sustain    (sustain),
                     .audio      (aud_b)
                 );
                 // 双弦平均：17 位中间量防溢出
