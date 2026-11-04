@@ -102,8 +102,10 @@ module ks_array #(
                     .audio      (aud_b)
                 );
                 // 双弦平均：17 位中间量防溢出
+                // 只有钢琴用双弦（拍频带来"弦组"厚度）；
+                // 吉他只用一根弦 —— 双弦叠在吉他上会听成"12 弦琴"，反而削弱质感。
                 wire signed [16:0] mix2 = aud_a + aud_b;
-                assign aud[gv] = mix2[16:1];
+                assign aud[gv] = piano_mode ? mix2[16:1] : aud_a;
             end
             else begin : g_single
                 assign aud[gv] = aud_a;
