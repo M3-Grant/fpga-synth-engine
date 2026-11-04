@@ -1,5 +1,10 @@
 # FPGA 电子琴 · PC 上位机（可视化 + 延迟测量）
 
+> ⚠️ **本目录是 v1 时代的上位机（Python + LabVIEW 对接），已停止维护。**
+> 现行上位机在 [`host_ui/`](../host_ui)：Electron 版（直接读 CH340，内嵌 HTTP 8099）
+> 或浏览器版（配 `bridge_server.py`）。
+> 保留本目录只为存档：`synth_viz.py` 的协议解析与 LabVIEW 文档仍有参考价值。
+
 > 配合 Tang Nano 20K 上的 `synth_ttp229` 固件使用。
 > 界面：**李萨如图形 / 实时频谱 / 波形显示 / 演奏延迟** 四个面板 + 状态栏 + 钢琴键盘。
 

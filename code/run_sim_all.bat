@@ -6,7 +6,7 @@ REM  This file used to run 5 suites and judged success by EXIT CODE
 REM  only, so it reported PASS even when a testbench printed [FAIL]
 REM  (hit on 2026-10-15: 2 hidden FAILs in tb_synth_board12).
 REM
-REM  The real regression runner is run_sim_all.ps1 (10 suites, scans
+REM  The real regression runner is run_sim_all.ps1 (15 suites, scans
 REM  the output for [FAIL]).  This wrapper just calls it.
 REM
 REM  NOTE: keep this file pure ASCII and CRLF (cmd.exe reads .bat
