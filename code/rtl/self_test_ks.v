@@ -131,8 +131,7 @@ module self_test_ks #(
 
     karplus_strong #(
         .PHASE_BITS  (32),
-        .DEPTH_LOG2  (9),        // 512
-        .DECAY_SHIFT (6)         // ≈0.984/次
+        .DEPTH_LOG2  (9)         // 512
     ) u_ks (
         .clk        (clk),
         .rst_n      (rst_n),
@@ -141,6 +140,10 @@ module self_test_ks #(
         .ks_len     (ks_len),
         .trig       (voice_trig),
         .busy       (voice_busy),
+        // 2026-11-04：slow_decay 是新增输入端口。这里原来没接，综合时浮空
+        // 会被当成不定值；自检固件固定用钢琴档（1）。
+        // 注：DECAY_SHIFT 参数已不再生效（衰减改为慢/快两档硬编码），故删掉。
+        .slow_decay (1'b1),
         .audio      (raw_audio)
     );
 
