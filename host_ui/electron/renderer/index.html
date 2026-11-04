@@ -140,7 +140,7 @@
   </header>
 
   <div class="grid">
-    <div class="card hero"><span class="title">李萨如图形（橙色 = 该音色的代表轨迹，暂留）</span>
+    <div class="card hero"><span class="title">峰值保持波形（每帧包络 · 峰值暂留到下一次刷新）</span>
       <span class="sub" id="lissSub"></span><canvas id="cLiss"></canvas></div>
     <div class="card spec"><span class="title">实时频谱</span>
       <span class="sub" id="specSub"></span><canvas id="cSpec"></canvas></div>
@@ -1044,7 +1044,7 @@ function drawAll(){
   if(now - lastCanvasT < rafInt * 0.85) return;
   lastCanvasT = now;
   lastDrawT = now;
-  drawWave(); drawSpec(); drawLiss(); drawNotes();
+  drawWave(); drawSpec(); drawPeakWave(); drawNotes();
 }
 
 /* ---- 主循环：测显示器刷新间隔 + 兜底重绘 + fps 统计 ---- */
