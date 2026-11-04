@@ -428,7 +428,30 @@ async function connectBridge(){
   bridgeAbort = new AbortController();
   reading = true;
   bridgeLoop();
+  // 连接建立后把两个开关的当前状态下发一次。
+  // 固件复位或页面重载后，UI 的勾选状态和片内的 fade_soft / sustain_en 可能不一致，
+  // 不同步就会出现"UI 显示关、实际还开着"的错觉。
+  pushSwitches();
   return true;
+}
+
+/* 静默下发当前开关状态（不覆盖状态栏文字） */
+function sendCmdRaw(cmd, arg){
+  const buf = new Uint8Array([0xA5, cmd, arg]);
+  if(port && port.writable){
+    const wr = port.writable.getWriter();
+    wr.write(buf).finally(()=>wr.releaseLock());
+    return true;
+  }
+  if(state.mode === "bridge"){
+    fetch("/cmd", {method:"POST", body: buf}).catch(()=>{});
+    return true;
+  }
+  return false;
+}
+function pushSwitches(){
+  sendCmdRaw(0x02, document.getElementById("fadeSoft").checked   ? 1 : 0);
+  sendCmdRaw(0x03, document.getElementById("sustainEn").checked  ? 1 : 0);
 }
 
 async function bridgeLoop(){
